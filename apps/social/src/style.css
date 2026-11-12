@@ -1,12 +1,13 @@
+
 * {
   box-sizing: border-box;
 }
 
 body {
   margin: 0;
-  background: #0b0c10;
-  color: #ffffff;
-  font-family: Arial, sans-serif;
+  background: var(--mf-background);
+  color: var(--mf-text);
+  font-family: var(--mf-font);
 }
 
 main {
@@ -18,7 +19,7 @@ main {
 
 .header {
   padding: 20px 0;
-  border-bottom: 1px solid #25262d;
+  border-bottom: 1px solid var(--mf-border);
 }
 
 .header h1 {
@@ -28,11 +29,11 @@ main {
 }
 
 .header h1 span {
-  color: #ff6b55;
+  color: var(--mf-primary);
 }
 
 .header p {
-  color: #999;
+  color: var(--mf-text-secondary);
   font-size: 11px;
   letter-spacing: 3px;
 }
@@ -40,8 +41,12 @@ main {
 .welcome {
   margin-top: 40px;
   padding: 28px;
-  border-radius: 18px;
-  background: linear-gradient(135deg, #25202a, #17191f);
+  border-radius: var(--mf-radius-large);
+  background: linear-gradient(
+    135deg,
+    var(--mf-surface-light),
+    var(--mf-surface)
+  );
 }
 
 .welcome h2 {
@@ -50,7 +55,7 @@ main {
 
 .welcome p,
 .empty-feed p {
-  color: #aaa;
+  color: var(--mf-text-secondary);
 }
 
 .feed {
@@ -61,8 +66,8 @@ main {
   margin-top: 20px;
   padding: 35px 20px;
   text-align: center;
-  border: 1px solid #292a32;
-  border-radius: 18px;
+  border: 1px solid var(--mf-border);
+  border-radius: var(--mf-radius-medium);
 }
 
 .empty-feed span {
