@@ -1,7 +1,12 @@
 
 import { useState } from 'react'
 
-type Page = 'accueil' | 'decouvrir' | 'activites' | 'profil'
+type Page =
+  | 'accueil'
+  | 'decouvrir'
+  | 'activites'
+  | 'messages'
+  | 'profil'
 
 function App() {
   const [page, setPage] = useState<Page>('accueil')
@@ -13,6 +18,7 @@ function App() {
         <h1 className="logo">
           MATCH<span>FIT</span>
         </h1>
+
         <button
           className="top-action"
           aria-label="Notifications"
@@ -45,6 +51,7 @@ function App() {
           <article className="post">
             <div className="post-header">
               <div className="avatar">E</div>
+
               <div>
                 <strong>Emma</strong>
                 <p>Trail running • Aujourd'hui</p>
@@ -58,16 +65,23 @@ function App() {
             </div>
 
             <div className="post-actions">
-              <button onClick={() => setLiked(!liked)}>
+              <button
+                onClick={() => setLiked(!liked)}
+                aria-label="J'aime"
+              >
                 {liked ? '❤️' : '♡'} {liked ? 129 : 128}
               </button>
+
               <button
                 onClick={() => alert('Commentaires à venir')}
+                aria-label="Commentaires"
               >
                 ♧ 12
               </button>
+
               <button
                 onClick={() => alert('Partage à venir')}
+                aria-label="Partager"
               >
                 ↗
               </button>
@@ -84,7 +98,9 @@ function App() {
       {page === 'decouvrir' && (
         <section className="placeholder-page">
           <h2>Découvrir</h2>
-          <p>Explore les sportifs de la communauté.</p>
+          <p>
+            Explore les sportifs de la communauté MatchFit.
+          </p>
         </section>
       )}
 
@@ -93,7 +109,17 @@ function App() {
           <h2>Mes activités</h2>
           <p>
             Retrouve bientôt tes courses, entraînements
-            et performances.
+            et performances sportives.
+          </p>
+        </section>
+      )}
+
+      {page === 'messages' && (
+        <section className="placeholder-page">
+          <h2>Messages</h2>
+          <p>
+            Retrouve ici tes conversations avec les
+            autres sportifs.
           </p>
         </section>
       )}
@@ -101,7 +127,9 @@ function App() {
       {page === 'profil' && (
         <section className="placeholder-page">
           <h2>Mon profil</h2>
-          <p>Ton espace sportif personnel.</p>
+          <p>
+            Ton espace sportif personnel.
+          </p>
         </section>
       )}
 
@@ -136,6 +164,14 @@ function App() {
         >
           <span>▥</span>
           Activités
+        </button>
+
+        <button
+          className={page === 'messages' ? 'active' : ''}
+          onClick={() => setPage('messages')}
+        >
+          <span>✉</span>
+          Messages
         </button>
 
         <button
