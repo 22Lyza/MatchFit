@@ -1,6 +1,8 @@
 
-import { useRef, useState } from 'react'
-import type { TouchEvent } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { CSSProperties, FormEvent, TouchEvent } from 'react'
+import type { Session } from '@supabase/supabase-js'
+import { supabase } from './supabase'
 
 type Page =
   | 'accueil'
@@ -10,8 +12,49 @@ type Page =
   | 'profil'
 
 type CreationType = 'story' | 'publication'
+type AuthMode = 'connexion' | 'inscription' | 'oubli'
+
+const fieldStyle: CSSProperties = {
+  width: '100%',
+  padding: '14px',
+  borderRadius: '12px',
+  border: '1px solid #30313b',
+  background: '#24252e',
+  color: '#fff',
+  fontSize: '14px',
+  marginTop: '7px',
+  marginBottom: '16px'
+}
+
+const primaryStyle: CSSProperties = {
+  width: '100%',
+  padding: '15px',
+  border: 'none',
+  borderRadius: '12px',
+  background: 'linear-gradient(135deg, #ff6558, #ff8a4b)',
+  color: '#fff',
+  fontSize: '15px',
+  fontWeight: 700
+}
+
+const linkStyle: CSSProperties = {
+  background: 'none',
+  border: 'none',
+  color: '#ff8a4b',
+  padding: '10px',
+  fontSize: '13px'
+}
 
 function App() {
+  const [session, setSession] = useState<Session | null>(null)
+  const [authLoading, setAuthLoading] = useState(true)
+  const [authBusy, setAuthBusy] = useState(false)
+  const [authMode, setAuthMode] = useState<AuthMode>('connexion')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [authMessage, setAuthMessage] = useState('')
+  const [authError, setAuthError] = useState('')
+
   const [page, setPage] = useState<Page>('accueil')
   const [liked, setLiked] = useState(false)
   const [creationOpen, setCreationOpen] = useState(false)
@@ -19,6 +62,118 @@ function App() {
     useState<CreationType | null>(null)
 
   const touchStart = useRef<{ x: number; y: number } | null>(null)
+
+  useEffect(() => {
+    let active = true
+
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (!active) return
+      setSession(data.session)
+      if (error) setAuthError(error.message)
+      setAuthLoading(false)
+    }).catch(() => {
+      if (active) {
+        setAuthError('Impossible de vérifier la connexion.')
+        setAuthLoading(false)
+      }
+    })
+
+    const { data: { subscription } } =
+      supabase.auth.onAuthStateChange((_event, nextSession) => {
+        if (!active) return
+        setSession(nextSession)
+        setAuthLoading(false)
+      })
+
+    return () => {
+      active = false
+      subscription.unsubscribe()
+    }
+  }, [])
+
+  function changeAuthMode(mode: AuthMode) {
+    setAuthMode(mode)
+    setAuthMessage('')
+    setAuthError('')
+    setPassword('')
+  }
+
+  async function handleAuth(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (authBusy) return
+
+    setAuthBusy(true)
+    setAuthError('')
+    setAuthMessage('')
+
+    try {
+      if (authMode === 'inscription') {
+        const { data, error } = await supabase.auth.signUp({
+          email: email.trim(),
+          password,
+          options: {
+            emailRedirectTo: window.location.origin
+          }
+        })
+
+        if (error) throw error
+
+        if (!data.session) {
+          setAuthMessage(
+            'Vérifie ta boîte e-mail pour confirmer ton compte. ' +
+            'Regarde aussi dans les spams.'
+          )
+        } else {
+          setSession(data.session)
+        }
+
+      } else if (authMode === 'connexion') {
+        const { error } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password
+        })
+
+        if (error) throw error
+
+      } else {
+        const { error } = await supabase.auth.resetPasswordForEmail(
+          email.trim(),
+          {
+            redirectTo: window.location.origin
+          }
+        )
+
+        if (error) throw error
+
+        setAuthMessage(
+          'Si cette adresse possède un compte, ' +
+          'tu recevras un e-mail de réinitialisation.'
+        )
+      }
+    } catch (error) {
+      setAuthError(
+        error instanceof Error
+          ? error.message
+          : 'Une erreur est survenue.'
+      )
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  async function handleLogout() {
+    const { error } = await supabase.auth.signOut()
+
+    if (error) {
+      alert(error.message)
+      return
+    }
+
+    setPage('accueil')
+    setCreationOpen(false)
+    setCreationType(null)
+    changeAuthMode('connexion')
+  }
 
   function handleTouchStart(event: TouchEvent<HTMLDivElement>) {
     touchStart.current = {
@@ -28,14 +183,13 @@ function App() {
   }
 
   function handleTouchEnd(event: TouchEvent<HTMLDivElement>) {
-    if (!touchStart.current || page !== 'accueil') return
-
-    const deltaX =
-      event.changedTouches[0].clientX - touchStart.current.x
-    const deltaY =
-      event.changedTouches[0].clientY - touchStart.current.y
-
+    const start = touchStart.current
     touchStart.current = null
+
+    if (!start || page !== 'accueil' || creationOpen) return
+
+    const deltaX = event.changedTouches[0].clientX - start.x
+    const deltaY = event.changedTouches[0].clientY - start.y
 
     if (deltaX > 90 && Math.abs(deltaX) > Math.abs(deltaY) * 1.5) {
       setCreationType(null)
@@ -46,6 +200,158 @@ function App() {
   function openCreation(type: CreationType | null = null) {
     setCreationType(type)
     setCreationOpen(true)
+  }
+
+  if (authLoading) {
+    return (
+      <div className="app">
+        <header className="topbar">
+          <h1 className="logo">
+            MATCH<span>FIT</span>
+          </h1>
+        </header>
+        <p style={{ textAlign: 'center', marginTop: 60 }}>
+          Chargement...
+        </p>
+      </div>
+    )
+  }
+
+  if (!session) {
+    return (
+      <div className="app">
+        <header className="topbar">
+          <h1 className="logo">
+            MATCH<span>FIT</span>
+          </h1>
+        </header>
+
+        <main style={{
+          maxWidth: 390,
+          margin: '55px auto',
+          padding: '25px',
+          border: '1px solid #30313b',
+          borderRadius: 24,
+          background: '#17181f'
+        }}>
+          <h2 style={{ textAlign: 'center', marginTop: 0 }}>
+            {authMode === 'connexion'
+              ? 'Bienvenue sur MatchFit'
+              : authMode === 'inscription'
+                ? 'Rejoins MatchFit'
+                : 'Mot de passe oublié'}
+          </h2>
+
+          <p style={{
+            textAlign: 'center',
+            color: '#a4a4ad',
+            fontSize: 13,
+            marginBottom: 25
+          }}>
+            {authMode === 'connexion'
+              ? 'Connecte-toi à ta communauté sportive.'
+              : authMode === 'inscription'
+                ? 'Crée ton compte et partage ta passion du sport.'
+                : 'Reçois un lien pour réinitialiser ton mot de passe.'}
+          </p>
+
+          <form onSubmit={handleAuth}>
+            <label htmlFor="auth-email">Adresse e-mail</label>
+            <input
+              id="auth-email"
+              type="email"
+              autoComplete="email"
+              required
+              value={email}
+              onChange={event => setEmail(event.target.value)}
+              placeholder="ton@email.com"
+              style={fieldStyle}
+            />
+
+            {authMode !== 'oubli' && (
+              <>
+                <label htmlFor="auth-password">Mot de passe</label>
+                <input
+                  id="auth-password"
+                  type="password"
+                  autoComplete={
+                    authMode === 'inscription'
+                      ? 'new-password'
+                      : 'current-password'
+                  }
+                  minLength={8}
+                  required
+                  value={password}
+                  onChange={event => setPassword(event.target.value)}
+                  placeholder="Minimum 8 caractères"
+                  style={fieldStyle}
+                />
+              </>
+            )}
+
+            {authError && (
+              <p role="alert" style={{ color: '#ff7777', fontSize: 13 }}>
+                {authError}
+              </p>
+            )}
+
+            {authMessage && (
+              <p role="status" style={{ color: '#8ee0aa', fontSize: 13 }}>
+                {authMessage}
+              </p>
+            )}
+
+            <button
+              type="submit"
+              disabled={authBusy}
+              style={{
+                ...primaryStyle,
+                opacity: authBusy ? 0.6 : 1
+              }}
+            >
+              {authBusy
+                ? 'Patiente...'
+                : authMode === 'connexion'
+                  ? 'Se connecter'
+                  : authMode === 'inscription'
+                    ? "S'inscrire"
+                    : 'Envoyer le lien'}
+            </button>
+          </form>
+
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            marginTop: 15
+          }}>
+            {authMode === 'connexion' ? (
+              <>
+                <button
+                  style={linkStyle}
+                  onClick={() => changeAuthMode('oubli')}
+                >
+                  Mot de passe oublié ?
+                </button>
+                <button
+                  style={linkStyle}
+                  onClick={() => changeAuthMode('inscription')}
+                >
+                  Pas encore de compte ? Inscris-toi
+                </button>
+              </>
+            ) : (
+              <button
+                style={linkStyle}
+                onClick={() => changeAuthMode('connexion')}
+              >
+                Retour à la connexion
+              </button>
+            )}
+          </div>
+        </main>
+      </div>
+    )
   }
 
   return (
@@ -171,6 +477,28 @@ function App() {
         <section className="placeholder-page">
           <h2>Mon profil</h2>
           <p>Ton espace sportif personnel.</p>
+
+          <div style={{
+            marginTop: 25,
+            padding: 20,
+            background: '#17181f',
+            borderRadius: 16,
+            border: '1px solid #30313b'
+          }}>
+            <p style={{ overflowWrap: 'anywhere' }}>
+              <strong>Compte :</strong> {session.user.email}
+            </p>
+
+            <button
+              onClick={handleLogout}
+              style={{
+                ...primaryStyle,
+                marginTop: 15
+              }}
+            >
+              Se déconnecter
+            </button>
+          </div>
         </section>
       )}
 
@@ -248,9 +576,7 @@ function App() {
                   <small>Partage un moment sportif</small>
                 </button>
 
-                <button
-                  onClick={() => setCreationType('publication')}
-                >
+                <button onClick={() => setCreationType('publication')}>
                   <span>▣</span>
                   <strong>Publication</strong>
                   <small>Photo, vidéo et performance</small>
@@ -283,7 +609,8 @@ function App() {
                   className="publish-button"
                   onClick={() =>
                     alert(
-                      'La publication réelle sera disponible après la connexion à Supabase.'
+                      'La publication réelle sera disponible après ' +
+                      "l'intégration des publications à Supabase."
                     )
                   }
                 >
