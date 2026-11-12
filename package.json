@@ -1,0 +1,17 @@
+
+{
+  "name": "matchfit",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/social",
+    "apps/dating",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:social": "npm run dev --workspace=@matchfit/social",
+    "dev:dating": "npm run dev --workspace=@matchfit/dating",
+    "build:social": "npm run build --workspace=@matchfit/social",
+    "build:dating": "npm run build --workspace=@matchfit/dating"
+  }
+}
