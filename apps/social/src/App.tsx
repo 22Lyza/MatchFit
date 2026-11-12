@@ -45,6 +45,42 @@ const linkStyle: CSSProperties = {
   fontSize: '13px'
 }
 
+function EyeIcon({ visible }: { visible: boolean }) {
+  return visible ? (
+    <svg
+      width="21"
+      height="21"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 3l18 18" />
+      <path d="M10.6 10.6a2 2 0 002.8 2.8" />
+      <path d="M9.9 5.3A10.8 10.8 0 0112 5c5 0 9 4 10 7a12.6 12.6 0 01-3.2 4.5" />
+      <path d="M6.3 6.3C4.2 7.7 2.7 9.8 2 12c1 3 5 7 10 7 1.8 0 3.4-.5 4.8-1.3" />
+    </svg>
+  ) : (
+    <svg
+      width="21"
+      height="21"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  )
+}
+
 function App() {
   const [session, setSession] = useState<Session | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
@@ -52,6 +88,7 @@ function App() {
   const [authMode, setAuthMode] = useState<AuthMode>('connexion')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [authMessage, setAuthMessage] = useState('')
   const [authError, setAuthError] = useState('')
 
@@ -66,17 +103,19 @@ function App() {
   useEffect(() => {
     let active = true
 
-    supabase.auth.getSession().then(({ data, error }) => {
-      if (!active) return
-      setSession(data.session)
-      if (error) setAuthError(error.message)
-      setAuthLoading(false)
-    }).catch(() => {
-      if (active) {
-        setAuthError('Impossible de vérifier la connexion.')
+    supabase.auth.getSession()
+      .then(({ data, error }) => {
+        if (!active) return
+        setSession(data.session)
+        if (error) setAuthError(error.message)
         setAuthLoading(false)
-      }
-    })
+      })
+      .catch(() => {
+        if (active) {
+          setAuthError('Impossible de vérifier la connexion.')
+          setAuthLoading(false)
+        }
+      })
 
     const { data: { subscription } } =
       supabase.auth.onAuthStateChange((_event, nextSession) => {
@@ -96,6 +135,7 @@ function App() {
     setAuthMessage('')
     setAuthError('')
     setPassword('')
+    setShowPassword(false)
   }
 
   async function handleAuth(event: FormEvent<HTMLFormElement>) {
@@ -191,7 +231,10 @@ function App() {
     const deltaX = event.changedTouches[0].clientX - start.x
     const deltaY = event.changedTouches[0].clientY - start.y
 
-    if (deltaX > 90 && Math.abs(deltaX) > Math.abs(deltaY) * 1.5) {
+    if (
+      deltaX > 90 &&
+      Math.abs(deltaX) > Math.abs(deltaY) * 1.5
+    ) {
       setCreationType(null)
       setCreationOpen(true)
     }
@@ -234,7 +277,10 @@ function App() {
           borderRadius: 24,
           background: '#17181f'
         }}>
-          <h2 style={{ textAlign: 'center', marginTop: 0 }}>
+          <h2 style={{
+            textAlign: 'center',
+            marginTop: 0
+          }}>
             {authMode === 'connexion'
               ? 'Bienvenue sur MatchFit'
               : authMode === 'inscription'
@@ -256,7 +302,10 @@ function App() {
           </p>
 
           <form onSubmit={handleAuth}>
-            <label htmlFor="auth-email">Adresse e-mail</label>
+            <label htmlFor="auth-email">
+              Adresse e-mail
+            </label>
+
             <input
               id="auth-email"
               type="email"
@@ -270,33 +319,84 @@ function App() {
 
             {authMode !== 'oubli' && (
               <>
-                <label htmlFor="auth-password">Mot de passe</label>
-                <input
-                  id="auth-password"
-                  type="password"
-                  autoComplete={
-                    authMode === 'inscription'
-                      ? 'new-password'
-                      : 'current-password'
-                  }
-                  minLength={8}
-                  required
-                  value={password}
-                  onChange={event => setPassword(event.target.value)}
-                  placeholder="Minimum 8 caractères"
-                  style={fieldStyle}
-                />
+                <label htmlFor="auth-password">
+                  Mot de passe
+                </label>
+
+                <div style={{ position: 'relative' }}>
+                  <input
+                    id="auth-password"
+                    type={showPassword ? 'text' : 'password'}
+                    autoComplete={
+                      authMode === 'inscription'
+                        ? 'new-password'
+                        : 'current-password'
+                    }
+                    minLength={8}
+                    required
+                    value={password}
+                    onChange={event =>
+                      setPassword(event.target.value)
+                    }
+                    placeholder="Minimum 8 caractères"
+                    style={{
+                      ...fieldStyle,
+                      paddingRight: '55px'
+                    }}
+                  />
+
+                  <button
+                    type="button"
+                    aria-label={
+                      showPassword
+                        ? 'Masquer le mot de passe'
+                        : 'Afficher le mot de passe'
+                    }
+                    aria-pressed={showPassword}
+                    onClick={() =>
+                      setShowPassword(!showPassword)
+                    }
+                    style={{
+                      position: 'absolute',
+                      right: 12,
+                      top: 17,
+                      width: 32,
+                      height: 32,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      border: 'none',
+                      background: 'transparent',
+                      color: '#a4a4ad',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <EyeIcon visible={showPassword} />
+                  </button>
+                </div>
               </>
             )}
 
             {authError && (
-              <p role="alert" style={{ color: '#ff7777', fontSize: 13 }}>
+              <p
+                role="alert"
+                style={{
+                  color: '#ff7777',
+                  fontSize: 13
+                }}
+              >
                 {authError}
               </p>
             )}
 
             {authMessage && (
-              <p role="status" style={{ color: '#8ee0aa', fontSize: 13 }}>
+              <p
+                role="status"
+                style={{
+                  color: '#8ee0aa',
+                  fontSize: 13
+                }}
+              >
                 {authMessage}
               </p>
             )}
@@ -333,6 +433,7 @@ function App() {
                 >
                   Mot de passe oublié ?
                 </button>
+
                 <button
                   style={linkStyle}
                   onClick={() => changeAuthMode('inscription')}
@@ -377,7 +478,9 @@ function App() {
           <button
             className="top-action"
             aria-label="Notifications"
-            onClick={() => alert('Notifications à venir')}
+            onClick={() =>
+              alert('Notifications à venir')
+            }
           >
             ♡
           </button>
@@ -415,6 +518,7 @@ function App() {
           <article className="post">
             <div className="post-header">
               <div className="avatar">E</div>
+
               <div>
                 <strong>Emma</strong>
                 <p>Trail running • Aujourd'hui</p>
@@ -428,15 +532,28 @@ function App() {
             </div>
 
             <div className="post-actions">
-              <button onClick={() => setLiked(!liked)}>
+              <button
+                onClick={() => setLiked(!liked)}
+                aria-label="J'aime"
+              >
                 {liked ? '❤️' : '♡'} {liked ? 129 : 128}
               </button>
 
-              <button onClick={() => alert('Commentaires à venir')}>
+              <button
+                onClick={() =>
+                  alert('Commentaires à venir')
+                }
+                aria-label="Commentaires"
+              >
                 ♧ 12
               </button>
 
-              <button onClick={() => alert('Partage à venir')}>
+              <button
+                onClick={() =>
+                  alert('Partage à venir')
+                }
+                aria-label="Partager"
+              >
                 ↗
               </button>
             </div>
@@ -452,7 +569,9 @@ function App() {
       {page === 'decouvrir' && (
         <section className="placeholder-page">
           <h2>Découvrir</h2>
-          <p>Explore les sportifs de la communauté MatchFit.</p>
+          <p>
+            Explore les sportifs de la communauté MatchFit.
+          </p>
         </section>
       )}
 
@@ -460,8 +579,8 @@ function App() {
         <section className="placeholder-page">
           <h2>Mes activités</h2>
           <p>
-            Retrouve tes courses, entraînements et performances
-            sportives.
+            Retrouve tes courses, entraînements
+            et performances sportives.
           </p>
         </section>
       )}
@@ -469,7 +588,9 @@ function App() {
       {page === 'messages' && (
         <section className="placeholder-page">
           <h2>Messages</h2>
-          <p>Retrouve tes conversations avec les autres sportifs.</p>
+          <p>
+            Retrouve tes conversations avec les autres sportifs.
+          </p>
         </section>
       )}
 
@@ -502,7 +623,10 @@ function App() {
         </section>
       )}
 
-      <nav className="bottom-nav" aria-label="Navigation principale">
+      <nav
+        className="bottom-nav"
+        aria-label="Navigation principale"
+      >
         <button
           className={page === 'accueil' ? 'active' : ''}
           onClick={() => setPage('accueil')}
@@ -570,13 +694,21 @@ function App() {
 
             {creationType === null ? (
               <div className="creation-options">
-                <button onClick={() => setCreationType('story')}>
+                <button
+                  onClick={() =>
+                    setCreationType('story')
+                  }
+                >
                   <span>◉</span>
                   <strong>Story</strong>
                   <small>Partage un moment sportif</small>
                 </button>
 
-                <button onClick={() => setCreationType('publication')}>
+                <button
+                  onClick={() =>
+                    setCreationType('publication')
+                  }
+                >
                   <span>▣</span>
                   <strong>Publication</strong>
                   <small>Photo, vidéo et performance</small>
@@ -609,8 +741,8 @@ function App() {
                   className="publish-button"
                   onClick={() =>
                     alert(
-                      'La publication réelle sera disponible après ' +
-                      "l'intégration des publications à Supabase."
+                      'La publication réelle sera disponible ' +
+                      "après l'intégration à Supabase."
                     )
                   }
                 >
@@ -619,7 +751,9 @@ function App() {
 
                 <button
                   className="creation-back"
-                  onClick={() => setCreationType(null)}
+                  onClick={() =>
+                    setCreationType(null)
+                  }
                 >
                   Retour aux choix
                 </button>
