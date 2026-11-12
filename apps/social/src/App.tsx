@@ -16,6 +16,7 @@ type AuthMode = 'connexion' | 'inscription' | 'oubli'
 
 const fieldStyle: CSSProperties = {
   width: '100%',
+  boxSizing: 'border-box',
   padding: '14px',
   borderRadius: '12px',
   border: '1px solid #30313b',
@@ -34,7 +35,8 @@ const primaryStyle: CSSProperties = {
   background: 'linear-gradient(135deg, #ff6558, #ff8a4b)',
   color: '#fff',
   fontSize: '15px',
-  fontWeight: 700
+  fontWeight: 700,
+  cursor: 'pointer'
 }
 
 const linkStyle: CSSProperties = {
@@ -42,7 +44,8 @@ const linkStyle: CSSProperties = {
   border: 'none',
   color: '#ff8a4b',
   padding: '10px',
-  fontSize: '13px'
+  fontSize: '13px',
+  cursor: 'pointer'
 }
 
 function EyeIcon({ visible }: { visible: boolean }) {
@@ -91,6 +94,7 @@ function App() {
   const [showPassword, setShowPassword] = useState(false)
   const [authMessage, setAuthMessage] = useState('')
   const [authError, setAuthError] = useState('')
+  const [showLoginSuggestion, setShowLoginSuggestion] = useState(false)
 
   const [page, setPage] = useState<Page>('accueil')
   const [liked, setLiked] = useState(false)
@@ -136,6 +140,7 @@ function App() {
     setAuthError('')
     setPassword('')
     setShowPassword(false)
+    setShowLoginSuggestion(false)
   }
 
   async function handleAuth(event: FormEvent<HTMLFormElement>) {
@@ -145,6 +150,7 @@ function App() {
     setAuthBusy(true)
     setAuthError('')
     setAuthMessage('')
+    setShowLoginSuggestion(false)
 
     try {
       if (authMode === 'inscription') {
@@ -156,13 +162,33 @@ function App() {
           }
         })
 
-        if (error) throw error
+        if (error) {
+          const message = error.message.toLowerCase()
+
+          if (
+            error.code === 'user_already_exists' ||
+            message.includes('already registered') ||
+            message.includes('already exists')
+          ) {
+            setAuthError(
+              'Cette adresse e-mail possède déjà un compte MatchFit. ' +
+              'Connecte-toi pour continuer.'
+            )
+            setShowLoginSuggestion(true)
+            return
+          }
+
+          throw error
+        }
 
         if (!data.session) {
           setAuthMessage(
-            'Vérifie ta boîte e-mail pour confirmer ton compte. ' +
-            'Regarde aussi dans les spams.'
+            "Si cette adresse peut être inscrite, " +
+            "tu recevras un e-mail de confirmation. " +
+            "Vérifie aussi tes spams. " +
+            "Si tu possèdes déjà un compte, connecte-toi."
           )
+          setShowLoginSuggestion(true)
         } else {
           setSession(data.session)
         }
@@ -189,6 +215,7 @@ function App() {
           'Si cette adresse possède un compte, ' +
           'tu recevras un e-mail de réinitialisation.'
         )
+        setShowLoginSuggestion(true)
       }
     } catch (error) {
       setAuthError(
@@ -394,11 +421,29 @@ function App() {
                 role="status"
                 style={{
                   color: '#8ee0aa',
-                  fontSize: 13
+                  fontSize: 13,
+                  lineHeight: 1.6
                 }}
               >
                 {authMessage}
               </p>
+            )}
+
+            {showLoginSuggestion && (
+              <button
+                type="button"
+                onClick={() => changeAuthMode('connexion')}
+                style={{
+                  ...linkStyle,
+                  display: 'block',
+                  width: '100%',
+                  marginBottom: 14,
+                  fontWeight: 700,
+                  textDecoration: 'underline'
+                }}
+              >
+                Déjà inscrit ? Se connecter
+              </button>
             )}
 
             <button
