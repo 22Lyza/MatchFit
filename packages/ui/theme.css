@@ -1,0 +1,29 @@
+
+:root {
+  /* Couleurs officielles MatchFit */
+  --mf-background: #0b0c10;
+  --mf-surface: #17181f;
+  --mf-surface-light: #24252e;
+
+  --mf-primary: #ff6558;
+  --mf-secondary: #ff8a4b;
+  --mf-gradient: linear-gradient(135deg, #ff6558, #ff8a4b);
+
+  --mf-text: #ffffff;
+  --mf-text-secondary: #a4a4ad;
+  --mf-border: #30313b;
+
+  /* Formes */
+  --mf-radius-small: 10px;
+  --mf-radius-medium: 16px;
+  --mf-radius-large: 24px;
+
+  /* Police */
+  --mf-font: Arial, Helvetica, sans-serif;
+}
+
+body {
+  background: var(--mf-background);
+  color: var(--mf-text);
+  font-family: var(--mf-font);
+}
