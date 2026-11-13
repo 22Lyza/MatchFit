@@ -4,7 +4,7 @@ import type { CSSProperties, FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 
-type Page = 'accueil' | 'decouvrir' | 'activites' | 'messages' | 'profil'
+type Page = 'accueil' | 'decouvrir' | 'activites' | 'messages' | 'profil' | 'reglages'
 type CreationType = 'story' | 'publication'
 type AuthMode = 'connexion' | 'inscription' | 'oubli'
 
@@ -129,8 +129,12 @@ function App() {
   const [showLoginSuggestion, setShowLoginSuggestion] = useState(false)
 
   const [page, setPage] = useState<Page>('accueil')
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  const [archivesOpen, setArchivesOpen] = useState(false)
+  const [settingsSection, setSettingsSection] = useState<'accueil' | 'archives' | 'confidentialite' | 'securite' | 'conditions' | 'donnees'>('accueil')
+  const [likedPosts, setLikedPosts] = useState<Record<string, boolean>>({})
+  const [comments, setComments] = useState<Record<string, string[]>>({})
+  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({})
+  const [commentModal, setCommentModal] = useState<{ id: string; author: string; caption: string } | null>(null)
+  const [interactionMessage, setInteractionMessage] = useState('')
   const [creationOpen, setCreationOpen] = useState(false)
   const [creationType, setCreationType] = useState<CreationType | null>(null)
   const [posts, setPosts] = useState<SocialPost[]>([])
@@ -373,6 +377,87 @@ function App() {
     setPublishError('')
   }
 
+  function toggleLike(postId: string) {
+    setLikedPosts(current => ({ ...current, [postId]: !current[postId] }))
+  }
+
+  function submitComment(postId: string) {
+    const value = (commentDrafts[postId] || '').trim()
+    if (!value) return
+    setComments(current => ({ ...current, [postId]: [...(current[postId] || []), value] }))
+    setCommentDrafts(current => ({ ...current, [postId]: '' }))
+
+  }
+
+  async function sharePost(postId: string, caption: string, mediaUrl?: string) {
+    const url = mediaUrl || window.location.href
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: 'MatchFit Social', text: caption, url })
+      } else {
+        await navigator.clipboard.writeText(url)
+        setInteractionMessage('Lien copié !')
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name !== 'AbortError') {
+        setInteractionMessage('Partage impossible sur cet appareil.')
+      }
+    }
+  }
+
+  const demoComments: Record<string, { name: string; text: string }[]> = {
+    'demo-Emma': [
+      { name: 'Lucas', text: 'Incroyable ce paysage 🔥' },
+      { name: 'Clara', text: 'Bravo pour ta sortie ! ❤️' },
+      { name: 'Thomas', text: 'Ça donne envie de courir ! 💪' }
+    ],
+    'demo-Lucas': [
+      { name: 'Emma', text: 'Grosse séance, bravo ! 💪' },
+      { name: 'Clara', text: 'La motivation est là 🔥' },
+      { name: 'Nina', text: 'Super progression !' }
+    ],
+    'demo-Clara': [
+      { name: 'Emma', text: 'On lâche rien ! ❤️' },
+      { name: 'Lucas', text: 'Bien joué 🔥' },
+      { name: 'Nina', text: 'Tu motives tout le monde !' }
+    ]
+  }
+
+  function postInteractions(postId: string, caption: string, authorName: string, mediaUrl?: string) {
+    const existing = demoComments[postId] || []
+    const added = comments[postId] || []
+    const total = existing.length + added.length
+    return (
+      <div style={{ padding: '12px 0 2px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 22 }}>
+          <button type="button" onClick={() => toggleLike(postId)} aria-label={likedPosts[postId] ? 'Retirer le like' : 'Aimer'}
+            style={{ ...linkStyle, color: likedPosts[postId] ? '#ff6558' : '#f5f5f5', fontSize: 27, padding: '2px 0' }}>
+            {likedPosts[postId] ? '♥' : '♡'}
+          </button>
+          <button type="button" onClick={() => setCommentModal({ id: postId, author: authorName, caption })}
+            aria-label="Voir et ajouter des commentaires"
+            style={{ ...linkStyle, color: '#f5f5f5', fontSize: 25, padding: '2px 0' }}>♧</button>
+          <button type="button" onClick={() => void sharePost(postId, caption, mediaUrl)} aria-label="Partager"
+            style={{ ...linkStyle, color: '#f5f5f5', fontSize: 25, padding: '2px 0' }}>↗</button>
+        </div>
+        <p style={{ margin: '5px 0 8px', fontSize: 13, fontWeight: 700 }}>{likedPosts[postId] ? '1 J’aime' : '0 J’aime'}</p>
+        {total > 0 && (
+          <>
+            <button type="button" onClick={() => setCommentModal({ id: postId, author: authorName, caption })}
+              style={{ ...linkStyle, padding: '3px 0 7px', color: '#a4a4ad', fontSize: 13 }}>
+              Voir les {total} commentaires
+            </button>
+            {[...existing, ...added.map(text => ({ name: 'Moi', text }))].slice(0, 3).map((comment, index) => (
+              <p key={index} style={{ margin: '5px 0', fontSize: 13, color: '#e6e6e9' }}>
+                <strong>{comment.name}</strong> {comment.text}
+              </p>
+            ))}
+          </>
+        )}
+      </div>
+    )
+  }
+
   function renderPost(post: SocialPost) {
     const author = authors[post.user_id]
     const authorName = author?.first_name || author?.username || 'Sportif MatchFit'
@@ -401,6 +486,7 @@ function App() {
             <strong>{authorName}</strong> {post.caption}
           </div>
         )}
+        {postInteractions(post.id, post.caption, authorName, post.media_url)}
       </article>
     )
   }
@@ -881,7 +967,7 @@ function App() {
               type="button"
               aria-label="Ouvrir les réglages"
               title="Réglages"
-              onClick={() => { setSettingsOpen(true); setArchivesOpen(false) }}
+              onClick={() => { setPage('reglages'); setSettingsSection('accueil') }}
               style={{ fontSize: 25, lineHeight: 1 }}
             >
               ⚙
@@ -970,6 +1056,7 @@ function App() {
               <div className="post-caption" style={{ paddingTop: 12 }}>
                 <strong>{example.name}</strong> {example.caption}
               </div>
+              {postInteractions('demo-' + example.name, example.caption, example.name, example.image)}
             </article>
           ))}
         </section>
@@ -1384,7 +1471,7 @@ function App() {
         </section>
       )}
 
-      <nav
+      {page !== 'reglages' && <nav
         className="bottom-nav"
         aria-label="Navigation principale"
       >
@@ -1427,47 +1514,103 @@ function App() {
           <span>♙</span>
           Profil
         </button>
-      </nav>
+      </nav>}
 
-      {settingsOpen && (
-        <div className="creation-overlay" onClick={() => setSettingsOpen(false)}>
-          <div className="creation-panel" onClick={event => event.stopPropagation()}>
-            <div className="creation-header">
-              <h2>{archivesOpen ? 'Archives' : 'Réglages'}</h2>
-              <button className="creation-close" type="button"
-                onClick={() => archivesOpen ? setArchivesOpen(false) : setSettingsOpen(false)}
-                aria-label={archivesOpen ? 'Retour aux réglages' : 'Fermer les réglages'}>
-                {archivesOpen ? '←' : '✕'}
-              </button>
+      {commentModal && (
+        <div className="creation-overlay" role="presentation" onClick={() => setCommentModal(null)}>
+          <div className="creation-modal" role="dialog" aria-modal="true" aria-label="Commentaires"
+            onClick={event => event.stopPropagation()}
+            style={{ maxHeight: '85dvh', overflowY: 'auto', width: 'min(440px, 94vw)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h2 style={{ margin: '0 0 14px' }}>Commentaires</h2>
+              <button type="button" aria-label="Fermer" onClick={() => setCommentModal(null)}
+                style={{ ...linkStyle, fontSize: 23, color: '#fff' }}>×</button>
             </div>
-            <div style={{ padding: 20 }}>
-              {archivesOpen ? (
-                <div style={{ ...cardStyle, marginTop: 0 }}>
-                  <h3 style={{ marginTop: 0 }}>Mes stories archivées</h3>
-                  <p style={{ color: '#a4a4ad', fontSize: 13 }}>
-                    Tes stories archivées apparaîtront ici lorsque les stories seront connectées à Supabase.
-                  </p>
-                </div>
-              ) : (
-                <>
-                  <button type="button" onClick={() => setArchivesOpen(true)}
-                    style={{ ...primaryStyle, background: '#24252e', textAlign: 'left', marginBottom: 16 }}>
-                    ◷  Archives  ›
-                  </button>
-                  <div style={{ ...cardStyle, marginTop: 0, marginBottom: 16 }}>
-                    <p style={{ fontSize: 13, overflowWrap: 'anywhere', margin: 0 }}>
-                      <strong>Compte :</strong> {session.user.email}
-                    </p>
-                  </div>
-                  <button type="button" onClick={handleLogout}
-                    style={{ ...primaryStyle, background: '#24252e', border: '1px solid #ff6558', color: '#ff8a4b' }}>
-                    Se déconnecter
-                  </button>
-                </>
-              )}
-            </div>
+            <p style={{ marginBottom: 18, whiteSpace: 'pre-wrap', fontSize: 14 }}>
+              <strong>{commentModal.author}</strong> {commentModal.caption}
+            </p>
+            {[...(demoComments[commentModal.id] || []), ...(comments[commentModal.id] || []).map(text => ({ name: 'Moi', text }))].map((comment, index) => (
+              <p key={index} style={{ margin: '12px 0', fontSize: 14 }}><strong>{comment.name}</strong> {comment.text}</p>
+            ))}
+            <form onSubmit={event => { event.preventDefault(); submitComment(commentModal.id) }}
+              style={{ display: 'flex', gap: 8, marginTop: 20 }}>
+              <input aria-label="Ton commentaire" placeholder="Ajouter un commentaire..."
+                value={commentDrafts[commentModal.id] || ''}
+                onChange={event => setCommentDrafts(current => ({ ...current, [commentModal.id]: event.target.value }))}
+                style={{ ...fieldStyle, margin: 0, minWidth: 0, flex: 1, padding: 10 }} />
+              <button type="submit" disabled={!(commentDrafts[commentModal.id] || '').trim()}
+                style={{ ...primaryStyle, width: 'auto', padding: '10px 13px' }}>Publier</button>
+            </form>
           </div>
         </div>
+      )}
+
+      {page === 'reglages' && (
+        <main className="placeholder-page" style={{ minHeight: 'calc(100dvh - 80px)', paddingBottom: 60 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 22 }}>
+            <button type="button" aria-label="Retour" onClick={() => settingsSection === 'accueil' ? setPage('profil') : setSettingsSection('accueil')}
+              style={{ ...linkStyle, fontSize: 24, padding: '5px 10px', color: '#fff' }}>←</button>
+            <h2 style={{ margin: 0 }}>{({ accueil: 'Réglages', archives: 'Archives', confidentialite: 'Confidentialité', securite: 'Sécurité', conditions: "Conditions d’utilisation", donnees: 'Mes données' } as const)[settingsSection]}</h2>
+          </div>
+          {settingsSection === 'accueil' ? (
+            <>
+              <p style={{ color: '#a4a4ad', fontSize: 13 }}>Compte : {session.user.email}</p>
+              {([
+                ['archives', '◷', 'Archives', 'Retrouver toutes mes stories'],
+                ['confidentialite', '♧', 'Confidentialité', 'Visibilité du profil et informations personnelles'],
+                ['securite', '♢', 'Sécurité', 'Connexion et protection du compte'],
+                ['conditions', '▤', "Conditions d’utilisation", 'Règles et documents légaux'],
+                ['donnees', '▦', 'Mes données', 'Accès et gestion des données personnelles']
+              ] as const).map(([key, symbol, label, description]) => (
+                <button key={key} type="button" onClick={() => setSettingsSection(key)}
+                  style={{ display: 'flex', width: '100%', alignItems: 'center', gap: 14, padding: 18, marginBottom: 10,
+                    borderRadius: 14, border: '1px solid #30313b', background: '#17181f', color: '#fff', cursor: 'pointer', textAlign: 'left' }}>
+                  <span style={{ fontSize: 24, color: '#ff8a4b' }}>{symbol}</span>
+                  <span style={{ flex: 1 }}><strong style={{ display: 'block', fontSize: 15 }}>{label}</strong>
+                    <small style={{ display: 'block', color: '#a4a4ad', marginTop: 5 }}>{description}</small></span>
+                  <span style={{ color: '#a4a4ad' }}>›</span>
+                </button>
+              ))}
+              <button type="button" onClick={handleLogout}
+                style={{ ...primaryStyle, background: '#24252e', border: '1px solid #ff6558', color: '#ff8a4b', marginTop: 16 }}>
+                Se déconnecter
+              </button>
+            </>
+          ) : settingsSection === 'archives' ? (
+            <div style={cardStyle}>
+              <h3>Mes stories archivées</h3>
+              <p style={{ color: '#a4a4ad', lineHeight: 1.6 }}>Tes stories sauvegardées apparaîtront ici après la mise en place des stories et des archives Supabase.</p>
+            </div>
+          ) : settingsSection === 'confidentialite' ? (
+            <div style={cardStyle}>
+              <h3>Confidentialité</h3>
+              <p style={{ color: '#a4a4ad', lineHeight: 1.6 }}>Cette rubrique accueillera les paramètres de visibilité du profil, les préférences de confidentialité et la politique de confidentialité officielle de MatchFit.</p>
+              <p style={{ color: '#ff8a4b', fontSize: 13 }}>Document légal à rédiger et valider avant publication.</p>
+            </div>
+          ) : settingsSection === 'securite' ? (
+            <div style={cardStyle}>
+              <h3>Sécurité du compte</h3>
+              <p style={{ color: '#a4a4ad', lineHeight: 1.6 }}>Cette rubrique accueillera les options de sécurité, de changement de mot de passe et de gestion des sessions.</p>
+              <button type="button" style={{ ...primaryStyle, marginTop: 12 }} onClick={async () => {
+                if (!session.user.email) return
+                const { error } = await supabase.auth.resetPasswordForEmail(session.user.email, { redirectTo: window.location.origin })
+                setInteractionMessage(error ? error.message : 'E-mail de réinitialisation envoyé.')
+              }}>Recevoir un lien pour réinitialiser mon mot de passe</button>
+            </div>
+          ) : settingsSection === 'conditions' ? (
+            <div style={cardStyle}>
+              <h3>Conditions d’utilisation</h3>
+              <p style={{ color: '#a4a4ad', lineHeight: 1.6 }}>Les conditions d’utilisation, les règles de la communauté et les mentions légales seront accessibles ici après leur rédaction.</p>
+              <p style={{ color: '#ff8a4b', fontSize: 13 }}>Textes juridiques non publiés pour le moment.</p>
+            </div>
+          ) : (
+            <div style={cardStyle}>
+              <h3>Mes données personnelles</h3>
+              <p style={{ color: '#a4a4ad', lineHeight: 1.6 }}>Cette page permettra de demander l’exportation ou la suppression des données du compte. Ces actions ne sont pas encore disponibles.</p>
+            </div>
+          )}
+          {interactionMessage && <p role="status" style={{ color: '#8ee0aa', fontSize: 13 }}>{interactionMessage}</p>}
+        </main>
       )}
 
       {selectedPost && (
