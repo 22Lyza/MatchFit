@@ -1520,20 +1520,24 @@ function App() {
 
       {commentModal && (
         <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Commentaires"
+          role="presentation"
+          onClick={() => setCommentModal(null)}
           style={{
             position: 'fixed', inset: 0, zIndex: 9999,
-            background: '#0b0c10', color: '#fff',
-            display: 'flex', flexDirection: 'column',
-            width: '100%', height: '100dvh', boxSizing: 'border-box'
+            background: 'rgba(0, 0, 0, 0.58)',
+            display: 'flex', alignItems: 'flex-end', justifyContent: 'center'
           }}
         >
+          <div role="dialog" aria-modal="true" aria-label="Commentaires"
+            onClick={event => event.stopPropagation()}
+            style={{ width: '100%', maxWidth: 560, height: 'min(62dvh, 620px)', minHeight: 300,
+              display: 'flex', flexDirection: 'column', background: '#17181f', color: '#fff',
+              borderRadius: '22px 22px 0 0', overflow: 'hidden', boxSizing: 'border-box',
+              boxShadow: '0 -10px 40px rgba(0,0,0,0.45)' }}>
           <div style={{
             display: 'flex', alignItems: 'center', gap: 14,
             padding: '18px 18px 14px', borderBottom: '1px solid #30313b',
-            background: '#0b0c10', flexShrink: 0
+            background: '#17181f', flexShrink: 0
           }}>
             <button type="button" aria-label="Retour aux publications"
               onClick={() => setCommentModal(null)}
@@ -1562,7 +1566,7 @@ function App() {
             )}
           </div>
           <form onSubmit={event => { event.preventDefault(); submitComment(commentModal.id) }}
-            style={{ display: 'flex', gap: 8, padding: '14px 18px max(18px, env(safe-area-inset-bottom))', borderTop: '1px solid #30313b', background: '#0b0c10', width: '100%', boxSizing: 'border-box', flexShrink: 0 }}>
+            style={{ display: 'flex', gap: 8, padding: '14px 18px max(18px, env(safe-area-inset-bottom))', borderTop: '1px solid #30313b', background: '#17181f', width: '100%', boxSizing: 'border-box', flexShrink: 0 }}>
             <input aria-label="Ton commentaire" placeholder="Ajouter un commentaire..."
               value={commentDrafts[commentModal.id] || ''}
               onChange={event => setCommentDrafts(current => ({ ...current, [commentModal.id]: event.target.value }))}
@@ -1570,6 +1574,7 @@ function App() {
             <button type="submit" disabled={!(commentDrafts[commentModal.id] || '').trim()}
               style={{ ...primaryStyle, width: 'auto', padding: '10px 16px', opacity: (commentDrafts[commentModal.id] || '').trim() ? 1 : 0.5 }}>Publier</button>
           </form>
+          </div>
         </div>
       )}
 
