@@ -8,6 +8,22 @@ type Page = 'accueil' | 'decouvrir' | 'activites' | 'messages' | 'profil'
 type CreationType = 'story' | 'publication'
 type AuthMode = 'connexion' | 'inscription' | 'oubli'
 
+type SocialPost = {
+  id: string
+  user_id: string
+  caption: string
+  media_url: string
+  media_type: 'image' | 'video'
+  created_at: string
+}
+
+type PostAuthor = {
+  first_name: string
+  username: string | null
+  avatar_url: string | null
+}
+
+
 type SocialProfile = {
   user_id: string
   first_name: string
@@ -113,9 +129,17 @@ function App() {
   const [showLoginSuggestion, setShowLoginSuggestion] = useState(false)
 
   const [page, setPage] = useState<Page>('accueil')
-  const [liked, setLiked] = useState(false)
   const [creationOpen, setCreationOpen] = useState(false)
   const [creationType, setCreationType] = useState<CreationType | null>(null)
+  const [posts, setPosts] = useState<SocialPost[]>([])
+  const [authors, setAuthors] = useState<Record<string, PostAuthor>>({})
+  const [postsLoading, setPostsLoading] = useState(false)
+  const [postsError, setPostsError] = useState('')
+  const [publishBusy, setPublishBusy] = useState(false)
+  const [publishError, setPublishError] = useState('')
+  const [postFile, setPostFile] = useState<File | null>(null)
+  const [postCaption, setPostCaption] = useState('')
+  const [postPreview, setPostPreview] = useState<string | null>(null)
 
   const [profile, setProfile] = useState<SocialProfile | null>(null)
   const [profileLoading, setProfileLoading] = useState(false)
@@ -226,6 +250,158 @@ function App() {
 
     return () => URL.revokeObjectURL(url)
   }, [avatarFile])
+
+  useEffect(() => {
+    if (!session?.user.id) {
+      setPosts([])
+      setAuthors({})
+      return
+    }
+    void loadPosts()
+  }, [session?.user.id])
+
+  useEffect(() => {
+    if (!postFile) {
+      setPostPreview(null)
+      return
+    }
+    const url = URL.createObjectURL(postFile)
+    setPostPreview(url)
+    return () => URL.revokeObjectURL(url)
+  }, [postFile])
+
+  async function loadPosts() {
+    setPostsLoading(true)
+    setPostsError('')
+    try {
+      const { data, error } = await supabase
+        .from('social_posts')
+        .select('id, user_id, caption, media_url, media_type, created_at')
+        .order('created_at', { ascending: false })
+        .limit(100)
+      if (error) throw error
+      const nextPosts = (data ?? []) as SocialPost[]
+      setPosts(nextPosts)
+
+      const userIds = [...new Set(nextPosts.map(post => post.user_id))]
+      if (userIds.length) {
+        const { data: people, error: peopleError } = await supabase
+          .from('social_profiles')
+          .select('user_id, first_name, username, avatar_url')
+          .in('user_id', userIds)
+        if (peopleError) throw peopleError
+        const nextAuthors: Record<string, PostAuthor> = {}
+        for (const person of people ?? []) {
+          nextAuthors[person.user_id] = {
+            first_name: person.first_name,
+            username: person.username,
+            avatar_url: person.avatar_url
+          }
+        }
+        setAuthors(nextAuthors)
+      } else {
+        setAuthors({})
+      }
+    } catch (error) {
+      setPostsError(error instanceof Error ? error.message : 'Chargement impossible.')
+    } finally {
+      setPostsLoading(false)
+    }
+  }
+
+  async function publishPost(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!session || !postFile || publishBusy) return
+
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'video/mp4']
+    if (!allowed.includes(postFile.type)) {
+      setPublishError('Format autorisé : JPG, PNG, WebP ou MP4.')
+      return
+    }
+    if (postFile.size > 50 * 1024 * 1024) {
+      setPublishError('Le fichier doit faire 50 Mo maximum.')
+      return
+    }
+
+    setPublishBusy(true)
+    setPublishError('')
+    const extension = postFile.type === 'video/mp4' ? 'mp4'
+      : postFile.type === 'image/png' ? 'png'
+      : postFile.type === 'image/webp' ? 'webp' : 'jpg'
+    const path = `${session.user.id}/posts/${crypto.randomUUID()}.${extension}`
+    let uploaded = false
+    try {
+      const { error: uploadError } = await supabase.storage
+        .from('social-media')
+        .upload(path, postFile, { contentType: postFile.type })
+      if (uploadError) throw uploadError
+      uploaded = true
+
+      const mediaUrl = supabase.storage.from('social-media').getPublicUrl(path).data.publicUrl
+      const { error: insertError } = await supabase.from('social_posts').insert({
+        user_id: session.user.id,
+        caption: postCaption.trim(),
+        media_url: mediaUrl,
+        media_type: postFile.type === 'video/mp4' ? 'video' : 'image'
+      })
+      if (insertError) throw insertError
+
+      setPostFile(null)
+      setPostCaption('')
+      setCreationOpen(false)
+      setCreationType(null)
+      setPage('accueil')
+      await loadPosts()
+    } catch (error) {
+      if (uploaded) {
+        await supabase.storage.from('social-media').remove([path])
+      }
+      setPublishError(error instanceof Error ? error.message : 'Publication impossible.')
+    } finally {
+      setPublishBusy(false)
+    }
+  }
+
+  function closeCreation() {
+    if (publishBusy) return
+    setCreationOpen(false)
+    setCreationType(null)
+    setPostFile(null)
+    setPostCaption('')
+    setPublishError('')
+  }
+
+  function renderPost(post: SocialPost) {
+    const author = authors[post.user_id]
+    const authorName = author?.first_name || author?.username || 'Sportif MatchFit'
+    return (
+      <article className="post" key={post.id}>
+        <div className="post-header">
+          <div className="avatar" style={{ overflow: 'hidden' }}>
+            {author?.avatar_url ? (
+              <img src={author.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            ) : authorName[0].toUpperCase()}
+          </div>
+          <div>
+            <strong>{authorName}</strong>
+            <p>{new Date(post.created_at).toLocaleDateString('fr-CH', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+          </div>
+        </div>
+        <div style={{ width: '100%', background: '#101116', borderRadius: 12, overflow: 'hidden' }}>
+          {post.media_type === 'video' ? (
+            <video src={post.media_url} controls playsInline preload="metadata" style={{ display: 'block', width: '100%', maxHeight: 520, objectFit: 'contain' }} />
+          ) : (
+            <img src={post.media_url} alt={post.caption || 'Publication sportive'} style={{ display: 'block', width: '100%', maxHeight: 520, objectFit: 'contain' }} />
+          )}
+        </div>
+        {post.caption && (
+          <div className="post-caption" style={{ whiteSpace: 'pre-wrap', paddingTop: 12 }}>
+            <strong>{authorName}</strong> {post.caption}
+          </div>
+        )}
+      </article>
+    )
+  }
 
   function updateProfile(changes: Partial<SocialProfile>) {
     setProfile(current =>
@@ -773,56 +949,17 @@ function App() {
             <span>Sport & communauté</span>
           </div>
 
-          <article className="post">
-            <div className="post-header">
-              <div className="avatar">E</div>
-
-              <div>
-                <strong>Emma</strong>
-                <p>Trail running • Aujourd'hui</p>
-              </div>
-            </div>
-
-            <div className="post-photo">
-              <span>🏔️</span>
-              <h3>Chaque sommet compte.</h3>
-              <p>18 km de trail en montagne</p>
-            </div>
-
-            <div className="post-actions">
-              <button
-                onClick={() =>
-                  setLiked(!liked)
-                }
-                aria-label="J'aime"
-              >
-                {liked ? '❤️' : '♡'} {liked ? 129 : 128}
-              </button>
-
-              <button
-                onClick={() =>
-                  alert('Commentaires à venir')
-                }
-                aria-label="Commentaires"
-              >
-                ♧ 12
-              </button>
-
-              <button
-                onClick={() =>
-                  alert('Partage à venir')
-                }
-                aria-label="Partager"
-              >
-                ↗
+          {postsLoading && <p>Chargement des publications...</p>}
+          {postsError && <p role="alert" style={{ color: '#ff7777' }}>{postsError}</p>}
+          {!postsLoading && posts.length === 0 && !postsError && (
+            <div style={cardStyle}>
+              <p>Aucune publication pour le moment.</p>
+              <button style={primaryStyle} onClick={() => openCreation('publication')}>
+                Créer ma première publication
               </button>
             </div>
-
-            <div className="post-caption">
-              <strong>Emma</strong> Une séance de plus 💪
-              <p>#running #trail #matchfit</p>
-            </div>
-          </article>
+          )}
+          {posts.map(renderPost)}
         </section>
       )}
 
@@ -972,7 +1109,7 @@ function App() {
                   }}
                 >
                   {[
-                    ['0', 'Publications'],
+                    [String(posts.filter(post => post.user_id === session.user.id).length), 'Publications'],
                     ['0', 'Activités'],
                     ['0', 'Abonnés']
                   ].map(([count, label]) => (
@@ -1199,25 +1336,24 @@ function App() {
               )}
 
               <div style={cardStyle}>
-                <h3
-                  style={{
-                    margin: 0,
-                    fontSize: 15
-                  }}
-                >
-                  ▦ Mes publications
-                </h3>
-
-                <p
-                  style={{
-                    textAlign: 'center',
-                    color: '#a4a4ad',
-                    fontSize: 13,
-                    marginTop: 25
-                  }}
-                >
-                  Tes publications apparaîtront ici.
-                </p>
+                <h3 style={{ margin: 0, fontSize: 15 }}>▦ Mes publications</h3>
+                {postsLoading && <p>Chargement...</p>}
+                {!postsLoading && posts.filter(post => post.user_id === session.user.id).length === 0 && (
+                  <p style={{ textAlign: 'center', color: '#a4a4ad', fontSize: 13, marginTop: 25 }}>
+                    Tu n'as pas encore de publications.
+                  </p>
+                )}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 5, marginTop: 15 }}>
+                  {posts.filter(post => post.user_id === session.user.id).map(post => (
+                    <div key={post.id} style={{ aspectRatio: '1', overflow: 'hidden', borderRadius: 8, background: '#24252e' }}>
+                      {post.media_type === 'video' ? (
+                        <video src={post.media_url} muted playsInline preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover' }} controls />
+                      ) : (
+                        <img src={post.media_url} alt={post.caption || 'Ma publication'} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             </>
           )}
@@ -1294,96 +1430,56 @@ function App() {
         <div className="creation-overlay">
           <div className="creation-panel">
             <div className="creation-header">
-              <h2>
-                {creationType === 'story'
-                  ? 'Nouvelle story'
-                  : creationType === 'publication'
-                    ? 'Nouvelle publication'
-                    : 'Créer sur MatchFit'}
-              </h2>
-
-              <button
-                className="creation-close"
-                onClick={() => {
-                  setCreationOpen(false)
-                  setCreationType(null)
-                }}
-                aria-label="Fermer"
-              >
-                ✕
-              </button>
+              <h2>{creationType === 'story' ? 'Nouvelle story' : creationType === 'publication' ? 'Nouvelle publication' : 'Créer sur MatchFit'}</h2>
+              <button className="creation-close" onClick={closeCreation} disabled={publishBusy} aria-label="Fermer">✕</button>
             </div>
-
             {creationType === null ? (
               <div className="creation-options">
-                <button
-                  onClick={() =>
-                    setCreationType('story')
-                  }
-                >
-                  <span>◉</span>
-                  <strong>Story</strong>
-                  <small>
-                    Partage un moment sportif
-                  </small>
+                <button onClick={() => setCreationType('story')}>
+                  <span>◉</span><strong>Story</strong><small>Partage un moment sportif</small>
                 </button>
-
-                <button
-                  onClick={() =>
-                    setCreationType('publication')
-                  }
-                >
-                  <span>▣</span>
-                  <strong>Publication</strong>
-                  <small>
-                    Photo, vidéo et performance
-                  </small>
+                <button onClick={() => setCreationType('publication')}>
+                  <span>▣</span><strong>Publication</strong><small>Photo, vidéo et performance</small>
                 </button>
               </div>
-            ) : (
+            ) : creationType === 'story' ? (
               <div className="creation-form">
-                <p>
-                  {creationType === 'story'
-                    ? 'Prépare ta prochaine story sportive.'
-                    : 'Prépare ta prochaine publication sportive.'}
-                </p>
-
-                <label htmlFor="creation-media">
-                  Ajouter une photo ou une vidéo
-                </label>
-
+                <p>Les stories seront disponibles dans une prochaine étape.</p>
+                <button className="creation-back" onClick={() => setCreationType(null)}>Retour aux choix</button>
+              </div>
+            ) : (
+              <form className="creation-form" onSubmit={publishPost}>
+                <p>Partage une photo ou une vidéo avec la communauté.</p>
+                <label htmlFor="creation-media">Photo ou vidéo (50 Mo maximum)</label>
                 <input
                   id="creation-media"
                   type="file"
-                  accept="image/*,video/*"
+                  accept="image/jpeg,image/png,image/webp,video/mp4"
+                  required
+                  onChange={event => setPostFile(event.target.files?.[0] ?? null)}
                 />
-
+                {postPreview && postFile && (
+                  postFile.type === 'video/mp4' ? (
+                    <video src={postPreview} controls playsInline style={{ width: '100%', maxHeight: 250, objectFit: 'contain' }} />
+                  ) : (
+                    <img src={postPreview} alt="Aperçu de la publication" style={{ width: '100%', maxHeight: 250, objectFit: 'contain' }} />
+                  )
+                )}
                 <textarea
                   placeholder="Écris une légende..."
                   rows={4}
+                  maxLength={2000}
+                  value={postCaption}
+                  onChange={event => setPostCaption(event.target.value)}
                 />
-
-                <button
-                  className="publish-button"
-                  onClick={() =>
-                    alert(
-                      'La publication réelle sera disponible après ' +
-                      "l'intégration à Supabase."
-                    )
-                  }
-                >
-                  Publier
+                {publishError && <p role="alert" style={{ color: '#ff7777', fontSize: 13 }}>{publishError}</p>}
+                <button className="publish-button" type="submit" disabled={publishBusy || !postFile}>
+                  {publishBusy ? 'Publication en cours...' : 'Publier'}
                 </button>
-
-                <button
-                  className="creation-back"
-                  onClick={() =>
-                    setCreationType(null)
-                  }
-                >
+                <button className="creation-back" type="button" disabled={publishBusy} onClick={() => setCreationType(null)}>
                   Retour aux choix
                 </button>
-              </div>
+              </form>
             )}
           </div>
         </div>
