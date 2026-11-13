@@ -436,7 +436,11 @@ function App() {
           </button>
           <button type="button" onClick={() => setCommentModal({ id: postId, author: authorName, caption })}
             aria-label="Voir et ajouter des commentaires"
-            style={{ ...linkStyle, color: '#f5f5f5', fontSize: 25, padding: '2px 0' }}>♧</button>
+            style={{ ...linkStyle, color: '#f5f5f5', padding: '2px 0', display: 'flex', alignItems: 'center' }}>
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5 9 9 0 0 1-4-.9L3 21l1.9-5.5a9 9 0 0 1-.9-4A8.5 8.5 0 0 1 12.5 3 8.5 8.5 0 0 1 21 11.5Z" />
+            </svg>
+          </button>
           <button type="button" onClick={() => void sharePost(postId, caption, mediaUrl)} aria-label="Partager"
             style={{ ...linkStyle, color: '#f5f5f5', fontSize: 25, padding: '2px 0' }}>↗</button>
         </div>
@@ -1515,31 +1519,57 @@ function App() {
       </nav>}
 
       {commentModal && (
-        <div className="creation-overlay" role="presentation" onClick={() => setCommentModal(null)}>
-          <div className="creation-modal" role="dialog" aria-modal="true" aria-label="Commentaires"
-            onClick={event => event.stopPropagation()}
-            style={{ maxHeight: '85dvh', overflowY: 'auto', width: 'min(440px, 94vw)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h2 style={{ margin: '0 0 14px' }}>Commentaires</h2>
-              <button type="button" aria-label="Fermer" onClick={() => setCommentModal(null)}
-                style={{ ...linkStyle, fontSize: 23, color: '#fff' }}>×</button>
-            </div>
-            <p style={{ marginBottom: 18, whiteSpace: 'pre-wrap', fontSize: 14 }}>
-              <strong>{commentModal.author}</strong> {commentModal.caption}
-            </p>
-            {[...(demoComments[commentModal.id] || []), ...(comments[commentModal.id] || []).map(text => ({ name: 'Moi', text }))].map((comment, index) => (
-              <p key={index} style={{ margin: '12px 0', fontSize: 14 }}><strong>{comment.name}</strong> {comment.text}</p>
-            ))}
-            <form onSubmit={event => { event.preventDefault(); submitComment(commentModal.id) }}
-              style={{ display: 'flex', gap: 8, marginTop: 20 }}>
-              <input aria-label="Ton commentaire" placeholder="Ajouter un commentaire..."
-                value={commentDrafts[commentModal.id] || ''}
-                onChange={event => setCommentDrafts(current => ({ ...current, [commentModal.id]: event.target.value }))}
-                style={{ ...fieldStyle, margin: 0, minWidth: 0, flex: 1, padding: 10 }} />
-              <button type="submit" disabled={!(commentDrafts[commentModal.id] || '').trim()}
-                style={{ ...primaryStyle, width: 'auto', padding: '10px 13px' }}>Publier</button>
-            </form>
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Commentaires"
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9999,
+            background: '#0b0c10', color: '#fff',
+            display: 'flex', flexDirection: 'column',
+            width: '100%', height: '100dvh', boxSizing: 'border-box'
+          }}
+        >
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 14,
+            padding: '18px 18px 14px', borderBottom: '1px solid #30313b',
+            background: '#0b0c10', flexShrink: 0
+          }}>
+            <button type="button" aria-label="Retour aux publications"
+              onClick={() => setCommentModal(null)}
+              style={{ ...linkStyle, color: '#fff', fontSize: 26, padding: '0 8px 0 0' }}>←</button>
+            <h2 style={{ margin: 0, fontSize: 19, flex: 1 }}>Commentaires</h2>
+            <button type="button" aria-label="Fermer les commentaires"
+              onClick={() => setCommentModal(null)}
+              style={{ ...linkStyle, color: '#fff', fontSize: 25, padding: 0 }}>×</button>
           </div>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '20px 18px', width: '100%', maxWidth: 600, margin: '0 auto', boxSizing: 'border-box' }}>
+            {commentModal.caption && (
+              <p style={{ margin: '0 0 22px', whiteSpace: 'pre-wrap', fontSize: 14, lineHeight: 1.6, paddingBottom: 18, borderBottom: '1px solid #30313b' }}>
+                <strong>{commentModal.author}</strong> {commentModal.caption}
+              </p>
+            )}
+            {[...(demoComments[commentModal.id] || []), ...(comments[commentModal.id] || []).map(text => ({ name: 'Moi', text }))].map((comment, index) => (
+              <div key={index} style={{ display: 'flex', gap: 12, marginBottom: 22, alignItems: 'flex-start' }}>
+                <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#30313b', color: '#ff8a4b', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontWeight: 700 }}>
+                  {comment.name.charAt(0).toUpperCase()}
+                </div>
+                <p style={{ margin: '7px 0 0', fontSize: 14, lineHeight: 1.5 }}><strong>{comment.name}</strong> {comment.text}</p>
+              </div>
+            ))}
+            {(demoComments[commentModal.id] || []).length === 0 && (comments[commentModal.id] || []).length === 0 && (
+              <p style={{ textAlign: 'center', color: '#a4a4ad', marginTop: 40 }}>Aucun commentaire pour le moment.</p>
+            )}
+          </div>
+          <form onSubmit={event => { event.preventDefault(); submitComment(commentModal.id) }}
+            style={{ display: 'flex', gap: 8, padding: '14px 18px max(18px, env(safe-area-inset-bottom))', borderTop: '1px solid #30313b', background: '#0b0c10', width: '100%', boxSizing: 'border-box', flexShrink: 0 }}>
+            <input aria-label="Ton commentaire" placeholder="Ajouter un commentaire..."
+              value={commentDrafts[commentModal.id] || ''}
+              onChange={event => setCommentDrafts(current => ({ ...current, [commentModal.id]: event.target.value }))}
+              style={{ ...fieldStyle, margin: 0, minWidth: 0, flex: 1, padding: 12 }} />
+            <button type="submit" disabled={!(commentDrafts[commentModal.id] || '').trim()}
+              style={{ ...primaryStyle, width: 'auto', padding: '10px 16px', opacity: (commentDrafts[commentModal.id] || '').trim() ? 1 : 0.5 }}>Publier</button>
+          </form>
         </div>
       )}
 
