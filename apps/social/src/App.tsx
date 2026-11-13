@@ -4,37 +4,51 @@ import type { CSSProperties, FormEvent, TouchEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 
-type Page =
-  | 'accueil'
-  | 'decouvrir'
-  | 'activites'
-  | 'messages'
-  | 'profil'
-
+type Page = 'accueil' | 'decouvrir' | 'activites' | 'messages' | 'profil'
 type CreationType = 'story' | 'publication'
 type AuthMode = 'connexion' | 'inscription' | 'oubli'
+
+type SocialProfile = {
+  user_id: string
+  first_name: string
+  username: string | null
+  city: string
+  sports: string[]
+  bio: string
+  avatar_url: string | null
+}
+
+const emptyProfile = (userId: string): SocialProfile => ({
+  user_id: userId,
+  first_name: '',
+  username: null,
+  city: '',
+  sports: [],
+  bio: '',
+  avatar_url: null
+})
 
 const fieldStyle: CSSProperties = {
   width: '100%',
   boxSizing: 'border-box',
-  padding: '14px',
-  borderRadius: '12px',
+  padding: 14,
+  borderRadius: 12,
   border: '1px solid #30313b',
   background: '#24252e',
   color: '#fff',
-  fontSize: '14px',
-  marginTop: '7px',
-  marginBottom: '16px'
+  fontSize: 14,
+  marginTop: 7,
+  marginBottom: 16
 }
 
 const primaryStyle: CSSProperties = {
   width: '100%',
-  padding: '15px',
+  padding: 15,
   border: 'none',
-  borderRadius: '12px',
+  borderRadius: 12,
   background: 'linear-gradient(135deg, #ff6558, #ff8a4b)',
   color: '#fff',
-  fontSize: '15px',
+  fontSize: 15,
   fontWeight: 700,
   cursor: 'pointer'
 }
@@ -43,13 +57,21 @@ const linkStyle: CSSProperties = {
   background: 'none',
   border: 'none',
   color: '#ff8a4b',
-  padding: '10px',
-  fontSize: '13px',
+  padding: 10,
+  fontSize: 13,
   cursor: 'pointer'
 }
 
+const cardStyle: CSSProperties = {
+  marginTop: 20,
+  padding: 20,
+  borderRadius: 18,
+  background: '#17181f',
+  border: '1px solid #30313b'
+}
+
 function EyeIcon({ visible }: { visible: boolean }) {
-  return visible ? (
+  return (
     <svg
       width="21"
       height="21"
@@ -61,25 +83,19 @@ function EyeIcon({ visible }: { visible: boolean }) {
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      <path d="M3 3l18 18" />
-      <path d="M10.6 10.6a2 2 0 002.8 2.8" />
-      <path d="M9.9 5.3A10.8 10.8 0 0112 5c5 0 9 4 10 7a12.6 12.6 0 01-3.2 4.5" />
-      <path d="M6.3 6.3C4.2 7.7 2.7 9.8 2 12c1 3 5 7 10 7 1.8 0 3.4-.5 4.8-1.3" />
-    </svg>
-  ) : (
-    <svg
-      width="21"
-      height="21"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
-      <circle cx="12" cy="12" r="3" />
+      {visible ? (
+        <>
+          <path d="M3 3l18 18" />
+          <path d="M10.6 10.6a2 2 0 002.8 2.8" />
+          <path d="M9.9 5.3A10.8 10.8 0 0112 5c5 0 9 4 10 7a12.6 12.6 0 01-3.2 4.5" />
+          <path d="M6.3 6.3C4.2 7.7 2.7 9.8 2 12c1 3 5 7 10 7 1.8 0 3.4-.5 4.8-1.3" />
+        </>
+      ) : (
+        <>
+          <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
+          <circle cx="12" cy="12" r="3" />
+        </>
+      )}
     </svg>
   )
 }
@@ -99,8 +115,17 @@ function App() {
   const [page, setPage] = useState<Page>('accueil')
   const [liked, setLiked] = useState(false)
   const [creationOpen, setCreationOpen] = useState(false)
-  const [creationType, setCreationType] =
-    useState<CreationType | null>(null)
+  const [creationType, setCreationType] = useState<CreationType | null>(null)
+
+  const [profile, setProfile] = useState<SocialProfile | null>(null)
+  const [profileLoading, setProfileLoading] = useState(false)
+  const [profileEditing, setProfileEditing] = useState(false)
+  const [profileBusy, setProfileBusy] = useState(false)
+  const [profileError, setProfileError] = useState('')
+  const [profileMessage, setProfileMessage] = useState('')
+  const [sportsText, setSportsText] = useState('')
+  const [avatarFile, setAvatarFile] = useState<File | null>(null)
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
 
   const touchStart = useRef<{ x: number; y: number } | null>(null)
 
@@ -115,10 +140,9 @@ function App() {
         setAuthLoading(false)
       })
       .catch(() => {
-        if (active) {
-          setAuthError('Impossible de vérifier la connexion.')
-          setAuthLoading(false)
-        }
+        if (!active) return
+        setAuthError('Impossible de vérifier la connexion.')
+        setAuthLoading(false)
       })
 
     const { data: { subscription } } =
@@ -133,6 +157,170 @@ function App() {
       subscription.unsubscribe()
     }
   }, [])
+
+  useEffect(() => {
+    const userId = session?.user.id
+
+    if (!userId) {
+      setProfile(null)
+      setProfileEditing(false)
+      setAvatarFile(null)
+      setAvatarPreview(null)
+      return
+    }
+
+    let cancelled = false
+    setProfileLoading(true)
+    setProfileError('')
+    setProfileMessage('')
+
+    void supabase
+      .from('social_profiles')
+      .select('user_id, first_name, username, city, sports, bio, avatar_url')
+      .eq('user_id', userId)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (cancelled) return
+
+        if (error) {
+          setProfileError('Impossible de charger ton profil : ' + error.message)
+          setProfile(emptyProfile(userId))
+        } else {
+          const loaded = (data as SocialProfile | null) ?? emptyProfile(userId)
+          setProfile(loaded)
+          setSportsText(loaded.sports.join(', '))
+          setProfileEditing(!data)
+        }
+
+        setProfileLoading(false)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setProfileError('Impossible de charger ton profil.')
+        setProfile(emptyProfile(userId))
+        setProfileLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [session?.user.id])
+
+  useEffect(() => {
+    if (!avatarFile) {
+      setAvatarPreview(null)
+      return
+    }
+
+    const url = URL.createObjectURL(avatarFile)
+    setAvatarPreview(url)
+
+    return () => URL.revokeObjectURL(url)
+  }, [avatarFile])
+
+  function updateProfile(changes: Partial<SocialProfile>) {
+    setProfile(current => current ? { ...current, ...changes } : current)
+  }
+
+  async function saveProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!session || !profile || profileBusy) return
+
+    const username =
+      profile.username?.trim().replace(/^@/, '').toLowerCase() || null
+
+    if (username && !/^[a-z0-9_]{3,30}$/.test(username)) {
+      setProfileError(
+        'Le pseudo doit contenir 3 à 30 caractères : lettres, chiffres ou _.'
+      )
+      return
+    }
+
+    setProfileBusy(true)
+    setProfileError('')
+    setProfileMessage('')
+
+    try {
+      let avatarUrl = profile.avatar_url
+
+      if (avatarFile) {
+        if (!['image/jpeg', 'image/png', 'image/webp'].includes(avatarFile.type)) {
+          throw new Error('Choisis une photo JPG, PNG ou WebP.')
+        }
+
+        if (avatarFile.size > 5 * 1024 * 1024) {
+          throw new Error('La photo doit peser moins de 5 Mo.')
+        }
+
+        const extension =
+          avatarFile.type === 'image/png'
+            ? 'png'
+            : avatarFile.type === 'image/webp'
+              ? 'webp'
+              : 'jpg'
+
+        const path =
+          `${session.user.id}/avatars/${crypto.randomUUID()}.${extension}`
+
+        const { error: uploadError } = await supabase.storage
+          .from('social-media')
+          .upload(path, avatarFile, {
+            contentType: avatarFile.type
+          })
+
+        if (uploadError) {
+          throw new Error('Photo non enregistrée : ' + uploadError.message)
+        }
+
+        avatarUrl = supabase.storage
+          .from('social-media')
+          .getPublicUrl(path).data.publicUrl
+      }
+
+      const updated: SocialProfile = {
+        ...profile,
+        user_id: session.user.id,
+        first_name: profile.first_name.trim(),
+        username,
+        city: profile.city.trim(),
+        bio: profile.bio.trim(),
+        sports: [
+          ...new Set(
+            sportsText
+              .split(',')
+              .map(sport => sport.trim())
+              .filter(Boolean)
+          )
+        ],
+        avatar_url: avatarUrl
+      }
+
+      const { error } = await supabase
+        .from('social_profiles')
+        .upsert(updated, { onConflict: 'user_id' })
+
+      if (error) {
+        if (error.code === '23505') {
+          throw new Error('Ce pseudo est déjà utilisé. Choisis-en un autre.')
+        }
+        throw error
+      }
+
+      setProfile(updated)
+      setSportsText(updated.sports.join(', '))
+      setAvatarFile(null)
+      setProfileEditing(false)
+      setProfileMessage('Ton profil a bien été enregistré !')
+    } catch (error) {
+      setProfileError(
+        error instanceof Error
+          ? error.message
+          : 'Impossible de sauvegarder ton profil.'
+      )
+    } finally {
+      setProfileBusy(false)
+    }
+  }
 
   function changeAuthMode(mode: AuthMode) {
     setAuthMode(mode)
@@ -171,8 +359,7 @@ function App() {
             message.includes('already exists')
           ) {
             setAuthError(
-              'Cette adresse e-mail possède déjà un compte MatchFit. ' +
-              'Connecte-toi pour continuer.'
+              'Cette adresse e-mail possède déjà un compte MatchFit. Connecte-toi.'
             )
             setShowLoginSuggestion(true)
             return
@@ -183,16 +370,12 @@ function App() {
 
         if (!data.session) {
           setAuthMessage(
-            "Si cette adresse peut être inscrite, " +
-            "tu recevras un e-mail de confirmation. " +
-            "Vérifie aussi tes spams. " +
-            "Si tu possèdes déjà un compte, connecte-toi."
+            'Vérifie ta boîte e-mail pour confirmer ton inscription.'
           )
           setShowLoginSuggestion(true)
         } else {
           setSession(data.session)
         }
-
       } else if (authMode === 'connexion') {
         const { error } = await supabase.auth.signInWithPassword({
           email: email.trim(),
@@ -200,20 +383,16 @@ function App() {
         })
 
         if (error) throw error
-
       } else {
         const { error } = await supabase.auth.resetPasswordForEmail(
           email.trim(),
-          {
-            redirectTo: window.location.origin
-          }
+          { redirectTo: window.location.origin }
         )
 
         if (error) throw error
 
         setAuthMessage(
-          'Si cette adresse possède un compte, ' +
-          'tu recevras un e-mail de réinitialisation.'
+          'Si cette adresse possède un compte, tu recevras un e-mail.'
         )
         setShowLoginSuggestion(true)
       }
@@ -258,10 +437,7 @@ function App() {
     const deltaX = event.changedTouches[0].clientX - start.x
     const deltaY = event.changedTouches[0].clientY - start.y
 
-    if (
-      deltaX > 90 &&
-      Math.abs(deltaX) > Math.abs(deltaY) * 1.5
-    ) {
+    if (deltaX > 90 && Math.abs(deltaX) > Math.abs(deltaY) * 1.5) {
       setCreationType(null)
       setCreationOpen(true)
     }
@@ -299,15 +475,12 @@ function App() {
         <main style={{
           maxWidth: 390,
           margin: '55px auto',
-          padding: '25px',
+          padding: 25,
           border: '1px solid #30313b',
           borderRadius: 24,
           background: '#17181f'
         }}>
-          <h2 style={{
-            textAlign: 'center',
-            marginTop: 0
-          }}>
+          <h2 style={{ textAlign: 'center', marginTop: 0 }}>
             {authMode === 'connexion'
               ? 'Bienvenue sur MatchFit'
               : authMode === 'inscription'
@@ -329,9 +502,7 @@ function App() {
           </p>
 
           <form onSubmit={handleAuth}>
-            <label htmlFor="auth-email">
-              Adresse e-mail
-            </label>
+            <label htmlFor="auth-email">Adresse e-mail</label>
 
             <input
               id="auth-email"
@@ -346,9 +517,7 @@ function App() {
 
             {authMode !== 'oubli' && (
               <>
-                <label htmlFor="auth-password">
-                  Mot de passe
-                </label>
+                <label htmlFor="auth-password">Mot de passe</label>
 
                 <div style={{ position: 'relative' }}>
                   <input
@@ -362,14 +531,9 @@ function App() {
                     minLength={8}
                     required
                     value={password}
-                    onChange={event =>
-                      setPassword(event.target.value)
-                    }
+                    onChange={event => setPassword(event.target.value)}
                     placeholder="Minimum 8 caractères"
-                    style={{
-                      ...fieldStyle,
-                      paddingRight: '55px'
-                    }}
+                    style={{ ...fieldStyle, paddingRight: 55 }}
                   />
 
                   <button
@@ -380,9 +544,7 @@ function App() {
                         : 'Afficher le mot de passe'
                     }
                     aria-pressed={showPassword}
-                    onClick={() =>
-                      setShowPassword(!showPassword)
-                    }
+                    onClick={() => setShowPassword(!showPassword)}
                     style={{
                       position: 'absolute',
                       right: 12,
@@ -405,26 +567,17 @@ function App() {
             )}
 
             {authError && (
-              <p
-                role="alert"
-                style={{
-                  color: '#ff7777',
-                  fontSize: 13
-                }}
-              >
+              <p role="alert" style={{ color: '#ff7777', fontSize: 13 }}>
                 {authError}
               </p>
             )}
 
             {authMessage && (
-              <p
-                role="status"
-                style={{
-                  color: '#8ee0aa',
-                  fontSize: 13,
-                  lineHeight: 1.6
-                }}
-              >
+              <p role="status" style={{
+                color: '#8ee0aa',
+                fontSize: 13,
+                lineHeight: 1.6
+              }}>
                 {authMessage}
               </p>
             )}
@@ -435,7 +588,6 @@ function App() {
                 onClick={() => changeAuthMode('connexion')}
                 style={{
                   ...linkStyle,
-                  display: 'block',
                   width: '100%',
                   marginBottom: 14,
                   fontWeight: 700,
@@ -478,7 +630,6 @@ function App() {
                 >
                   Mot de passe oublié ?
                 </button>
-
                 <button
                   style={linkStyle}
                   onClick={() => changeAuthMode('inscription')}
@@ -523,9 +674,7 @@ function App() {
           <button
             className="top-action"
             aria-label="Notifications"
-            onClick={() =>
-              alert('Notifications à venir')
-            }
+            onClick={() => alert('Notifications à venir')}
           >
             ♡
           </button>
@@ -563,7 +712,6 @@ function App() {
           <article className="post">
             <div className="post-header">
               <div className="avatar">E</div>
-
               <div>
                 <strong>Emma</strong>
                 <p>Trail running • Aujourd'hui</p>
@@ -585,18 +733,14 @@ function App() {
               </button>
 
               <button
-                onClick={() =>
-                  alert('Commentaires à venir')
-                }
+                onClick={() => alert('Commentaires à venir')}
                 aria-label="Commentaires"
               >
                 ♧ 12
               </button>
 
               <button
-                onClick={() =>
-                  alert('Partage à venir')
-                }
+                onClick={() => alert('Partage à venir')}
                 aria-label="Partager"
               >
                 ↗
@@ -614,9 +758,7 @@ function App() {
       {page === 'decouvrir' && (
         <section className="placeholder-page">
           <h2>Découvrir</h2>
-          <p>
-            Explore les sportifs de la communauté MatchFit.
-          </p>
+          <p>Explore les sportifs de la communauté MatchFit.</p>
         </section>
       )}
 
@@ -633,25 +775,331 @@ function App() {
       {page === 'messages' && (
         <section className="placeholder-page">
           <h2>Messages</h2>
-          <p>
-            Retrouve tes conversations avec les autres sportifs.
-          </p>
+          <p>Retrouve tes conversations avec les autres sportifs.</p>
         </section>
       )}
 
       {page === 'profil' && (
         <section className="placeholder-page">
-          <h2>Mon profil</h2>
+          <h2>Mon profil sportif</h2>
           <p>Ton espace sportif personnel.</p>
 
-          <div style={{
-            marginTop: 25,
-            padding: 20,
-            background: '#17181f',
-            borderRadius: 16,
-            border: '1px solid #30313b'
-          }}>
-            <p style={{ overflowWrap: 'anywhere' }}>
+          {profileLoading ? (
+            <p>Chargement du profil...</p>
+          ) : profile && (
+            <>
+              <div style={cardStyle}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 16
+                }}>
+                  <div style={{
+                    width: 80,
+                    height: 80,
+                    borderRadius: '50%',
+                    border: '2px solid #ff6558',
+                    background: '#24252e',
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    overflow: 'hidden',
+                    flexShrink: 0
+                  }}>
+                    {(avatarPreview || profile.avatar_url) ? (
+                      <img
+                        src={avatarPreview || profile.avatar_url || ''}
+                        alt="Photo de profil"
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'cover'
+                        }}
+                      />
+                    ) : (
+                      <span style={{
+                        fontSize: 30,
+                        color: '#ff8a4b'
+                      }}>
+                        {profile.first_name
+                          ? profile.first_name[0].toUpperCase()
+                          : '♡'}
+                      </span>
+                    )}
+                  </div>
+
+                  <div style={{ minWidth: 0 }}>
+                    <h3 style={{ margin: '0 0 5px' }}>
+                      {profile.first_name || 'Ton prénom'}
+                    </h3>
+
+                    <p style={{
+                      margin: '0 0 5px',
+                      color: '#ff8a4b'
+                    }}>
+                      {profile.username
+                        ? '@' + profile.username
+                        : '@tonpseudo'}
+                    </p>
+
+                    <p style={{
+                      margin: 0,
+                      color: '#a4a4ad',
+                      fontSize: 13
+                    }}>
+                      📍 {profile.city || 'Ta ville'}
+                    </p>
+                  </div>
+                </div>
+
+                <p style={{
+                  marginTop: 18,
+                  whiteSpace: 'pre-wrap'
+                }}>
+                  {profile.bio || 'Ajoute ta biographie sportive 💪'}
+                </p>
+
+                <p style={{
+                  fontSize: 13,
+                  color: '#ff8a4b'
+                }}>
+                  {profile.sports.length
+                    ? profile.sports.join(' · ')
+                    : 'Ajoute tes sports favoris'}
+                </p>
+
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(3, 1fr)',
+                  gap: 8,
+                  marginTop: 20,
+                  textAlign: 'center'
+                }}>
+                  {[
+                    ['0', 'Publications'],
+                    ['0', 'Activités'],
+                    ['0', 'Abonnés']
+                  ].map(([count, label]) => (
+                    <div
+                      key={label}
+                      style={{
+                        background: '#24252e',
+                        borderRadius: 12,
+                        padding: '12px 4px'
+                      }}
+                    >
+                      <strong style={{ fontSize: 18 }}>
+                        {count}
+                      </strong>
+                      <p style={{
+                        fontSize: 11,
+                        color: '#a4a4ad',
+                        marginBottom: 0
+                      }}>
+                        {label}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+
+                {!profileEditing && (
+                  <button
+                    style={{
+                      ...primaryStyle,
+                      marginTop: 20
+                    }}
+                    onClick={() => {
+                      setProfileEditing(true)
+                      setProfileMessage('')
+                      setProfileError('')
+                    }}
+                  >
+                    ✎ Modifier mon profil
+                  </button>
+                )}
+              </div>
+
+              {profileEditing && (
+                <form onSubmit={saveProfile} style={cardStyle}>
+                  <h3 style={{ marginTop: 0 }}>
+                    Modifier mon profil
+                  </h3>
+
+                  <label htmlFor="profile-photo">
+                    Photo de profil
+                  </label>
+
+                  <input
+                    id="profile-photo"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={event =>
+                      setAvatarFile(event.target.files?.[0] || null)
+                    }
+                    style={{
+                      ...fieldStyle,
+                      padding: 10
+                    }}
+                  />
+
+                  <label htmlFor="profile-first-name">
+                    Prénom
+                  </label>
+                  <input
+                    id="profile-first-name"
+                    value={profile.first_name}
+                    onChange={event =>
+                      updateProfile({ first_name: event.target.value })
+                    }
+                    placeholder="Ton prénom"
+                    maxLength={60}
+                    required
+                    style={fieldStyle}
+                  />
+
+                  <label htmlFor="profile-username">
+                    Pseudo
+                  </label>
+                  <input
+                    id="profile-username"
+                    value={profile.username || ''}
+                    onChange={event =>
+                      updateProfile({ username: event.target.value })
+                    }
+                    placeholder="tonpseudo"
+                    maxLength={30}
+                    style={fieldStyle}
+                  />
+
+                  <label htmlFor="profile-city">
+                    Ville
+                  </label>
+                  <input
+                    id="profile-city"
+                    value={profile.city}
+                    onChange={event =>
+                      updateProfile({ city: event.target.value })
+                    }
+                    placeholder="Ta ville"
+                    maxLength={100}
+                    style={fieldStyle}
+                  />
+
+                  <label htmlFor="profile-sports">
+                    Sports favoris
+                  </label>
+                  <input
+                    id="profile-sports"
+                    value={sportsText}
+                    onChange={event => setSportsText(event.target.value)}
+                    placeholder="Musculation, Trail, Running"
+                    style={fieldStyle}
+                  />
+
+                  <p style={{
+                    fontSize: 12,
+                    color: '#a4a4ad',
+                    marginTop: -10
+                  }}>
+                    Sépare tes sports par une virgule.
+                  </p>
+
+                  <label htmlFor="profile-bio">
+                    Biographie
+                  </label>
+                  <textarea
+                    id="profile-bio"
+                    value={profile.bio}
+                    onChange={event =>
+                      updateProfile({ bio: event.target.value })
+                    }
+                    placeholder="Parle de ta passion du sport..."
+                    rows={4}
+                    maxLength={500}
+                    style={{
+                      ...fieldStyle,
+                      resize: 'vertical'
+                    }}
+                  />
+
+                  <button
+                    type="submit"
+                    disabled={profileBusy}
+                    style={{
+                      ...primaryStyle,
+                      opacity: profileBusy ? 0.6 : 1
+                    }}
+                  >
+                    {profileBusy
+                      ? 'Enregistrement...'
+                      : 'Enregistrer mon profil'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProfileEditing(false)
+                      setAvatarFile(null)
+                      setProfileError('')
+                    }}
+                    style={{
+                      ...linkStyle,
+                      width: '100%',
+                      marginTop: 10
+                    }}
+                  >
+                    Annuler
+                  </button>
+                </form>
+              )}
+
+              {profileError && (
+                <p role="alert" style={{
+                  color: '#ff7777',
+                  fontSize: 13
+                }}>
+                  {profileError}
+                </p>
+              )}
+
+              {profileMessage && (
+                <p role="status" style={{
+                  color: '#8ee0aa',
+                  fontSize: 13
+                }}>
+                  {profileMessage}
+                </p>
+              )}
+
+              <div style={cardStyle}>
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-around',
+                  gap: 10,
+                  fontSize: 13,
+                  fontWeight: 700
+                }}>
+                  <span>▦ Publications</span>
+                  <span>⌁ Activités</span>
+                </div>
+
+                <p style={{
+                  textAlign: 'center',
+                  color: '#a4a4ad',
+                  fontSize: 13,
+                  marginTop: 25
+                }}>
+                  Tes publications et activités apparaîtront ici.
+                </p>
+              </div>
+            </>
+          )}
+
+          <div style={cardStyle}>
+            <p style={{
+              fontSize: 13,
+              overflowWrap: 'anywhere'
+            }}>
               <strong>Compte :</strong> {session.user.email}
             </p>
 
@@ -740,9 +1188,7 @@ function App() {
             {creationType === null ? (
               <div className="creation-options">
                 <button
-                  onClick={() =>
-                    setCreationType('story')
-                  }
+                  onClick={() => setCreationType('story')}
                 >
                   <span>◉</span>
                   <strong>Story</strong>
@@ -750,9 +1196,7 @@ function App() {
                 </button>
 
                 <button
-                  onClick={() =>
-                    setCreationType('publication')
-                  }
+                  onClick={() => setCreationType('publication')}
                 >
                   <span>▣</span>
                   <strong>Publication</strong>
@@ -786,8 +1230,8 @@ function App() {
                   className="publish-button"
                   onClick={() =>
                     alert(
-                      'La publication réelle sera disponible ' +
-                      "après l'intégration à Supabase."
+                      'La publication réelle sera disponible après ' +
+                      "l'intégration à Supabase."
                     )
                   }
                 >
@@ -796,9 +1240,7 @@ function App() {
 
                 <button
                   className="creation-back"
-                  onClick={() =>
-                    setCreationType(null)
-                  }
+                  onClick={() => setCreationType(null)}
                 >
                   Retour aux choix
                 </button>
