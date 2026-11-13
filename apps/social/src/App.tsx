@@ -428,7 +428,7 @@ function App() {
     const added = comments[postId] || []
     const total = existing.length + added.length
     return (
-      <div style={{ padding: '12px 0 2px' }}>
+      <div style={{ padding: '12px 16px 14px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 22 }}>
           <button type="button" onClick={() => toggleLike(postId)} aria-label={likedPosts[postId] ? 'Retirer le like' : 'Aimer'}
             style={{ ...linkStyle, color: likedPosts[postId] ? '#ff6558' : '#f5f5f5', fontSize: 27, padding: '2px 0' }}>
@@ -445,6 +445,11 @@ function App() {
             style={{ ...linkStyle, color: '#f5f5f5', fontSize: 25, padding: '2px 0' }}>↗</button>
         </div>
         <p style={{ margin: '5px 0 8px', fontSize: 13, fontWeight: 700 }}>{likedPosts[postId] ? '1 J’aime' : '0 J’aime'}</p>
+        {caption.trim() && (
+          <p style={{ margin: '7px 0 8px', fontSize: 13, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+            <strong>{authorName}</strong> {caption}
+          </p>
+        )}
         {total > 0 && (
           <>
             <button type="button" onClick={() => setCommentModal({ id: postId, author: authorName, caption })}
@@ -467,7 +472,7 @@ function App() {
     const authorName = author?.first_name || author?.username || 'Sportif MatchFit'
     return (
       <article className="post" key={post.id}>
-        <div className="post-header">
+        <div className="post-header" style={{ paddingLeft: 16, paddingRight: 16 }}>
           <div className="avatar" style={{ overflow: 'hidden' }}>
             {author?.avatar_url ? (
               <img src={author.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -478,18 +483,13 @@ function App() {
             <p>{new Date(post.created_at).toLocaleDateString('fr-CH', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
           </div>
         </div>
-        <div style={{ width: '100%', background: '#101116', borderRadius: 12, overflow: 'hidden' }}>
+        <div style={{ margin: '0 16px', background: '#101116', borderRadius: 12, overflow: 'hidden' }}>
           {post.media_type === 'video' ? (
             <video src={post.media_url} controls playsInline preload="metadata" style={{ display: 'block', width: '100%', maxHeight: 520, objectFit: 'contain' }} />
           ) : (
             <img src={post.media_url} alt={post.caption || 'Publication sportive'} style={{ display: 'block', width: '100%', maxHeight: 520, objectFit: 'contain' }} />
           )}
         </div>
-        {post.caption && (
-          <div className="post-caption" style={{ whiteSpace: 'pre-wrap', paddingTop: 12 }}>
-            <strong>{authorName}</strong> {post.caption}
-          </div>
-        )}
         {postInteractions(post.id, post.caption, authorName, post.media_url)}
       </article>
     )
@@ -1044,7 +1044,7 @@ function App() {
             }
           ].map(example => (
             <article className="post" key={example.name + '-demo'}>
-              <div className="post-header">
+              <div className="post-header" style={{ paddingLeft: 16, paddingRight: 16 }}>
                 <div className="avatar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   {example.initial}
                 </div>
@@ -1054,10 +1054,7 @@ function App() {
                 </div>
               </div>
               <img src={example.image} alt={'Exemple de publication ' + example.sport}
-                loading="lazy" style={{ display: 'block', width: '100%', maxHeight: 480, objectFit: 'cover', borderRadius: 12 }} />
-              <div className="post-caption" style={{ paddingTop: 12 }}>
-                <strong>{example.name}</strong> {example.caption}
-              </div>
+                loading="lazy" style={{ display: 'block', width: 'calc(100% - 32px)', margin: '0 16px', maxHeight: 480, objectFit: 'cover', borderRadius: 12 }} />
               {postInteractions('demo-' + example.name, example.caption, example.name, example.image)}
             </article>
           ))}
