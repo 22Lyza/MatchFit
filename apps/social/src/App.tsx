@@ -129,6 +129,8 @@ function App() {
   const [showLoginSuggestion, setShowLoginSuggestion] = useState(false)
 
   const [page, setPage] = useState<Page>('accueil')
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [archivesOpen, setArchivesOpen] = useState(false)
   const [creationOpen, setCreationOpen] = useState(false)
   const [creationType, setCreationType] = useState<CreationType | null>(null)
   const [posts, setPosts] = useState<SocialPost[]>([])
@@ -614,6 +616,8 @@ function App() {
     }
 
     setPage('accueil')
+    setSettingsOpen(false)
+    setArchivesOpen(false)
     setCreationOpen(false)
     setCreationType(null)
     changeAuthMode('connexion')
@@ -870,17 +874,20 @@ function App() {
           MATCH<span>FIT</span>
         </h1>
 
-        <div className="topbar-actions">
-          <button
-            className="top-action"
-            aria-label="Notifications"
-            onClick={() =>
-              alert('Notifications à venir')
-            }
-          >
-            ♡
-          </button>
-        </div>
+        {page === 'profil' && (
+          <div className="topbar-actions">
+            <button
+              className="top-action"
+              type="button"
+              aria-label="Ouvrir les réglages"
+              title="Réglages"
+              onClick={() => { setSettingsOpen(true); setArchivesOpen(false) }}
+              style={{ fontSize: 25, lineHeight: 1 }}
+            >
+              ⚙
+            </button>
+          </div>
+        )}
       </header>
 
       {page === 'accueil' && (
@@ -926,6 +933,45 @@ function App() {
             </div>
           )}
           {posts.filter(post => post.user_id !== session.user.id).map(renderPost)}
+
+          {/* Publications fictives de démonstration : jamais enregistrées dans Supabase. */}
+          <p style={{ margin: '24px 0 10px', fontSize: 12, color: '#a4a4ad' }}>
+            Exemples de publications · Démonstration
+          </p>
+          {[
+            {
+              name: 'Emma', sport: 'Running', initial: 'E',
+              image: 'https://images.unsplash.com/photo-1552674605-db6ffd4facb5?w=900&auto=format&fit=crop&q=80',
+              caption: 'Sortie running du matin 🏃‍♀️ Chaque kilomètre compte !'
+            },
+            {
+              name: 'Lucas', sport: 'Musculation', initial: 'L',
+              image: 'https://images.unsplash.com/photo-1517836357463-d25dfeac3438?w=900&auto=format&fit=crop&q=80',
+              caption: 'Une belle séance de musculation aujourd’hui 💪'
+            },
+            {
+              name: 'Clara', sport: 'Fitness', initial: 'C',
+              image: 'https://images.unsplash.com/photo-1534258936925-c58bed479fcb?w=900&auto=format&fit=crop&q=80',
+              caption: 'On reste motivés, même les jours difficiles 🔥'
+            }
+          ].map(example => (
+            <article className="post" key={example.name + '-demo'}>
+              <div className="post-header">
+                <div className="avatar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {example.initial}
+                </div>
+                <div>
+                  <strong>{example.name} <span style={{ color: '#a4a4ad', fontWeight: 400, fontSize: 11 }}>· Démo</span></strong>
+                  <p>{example.sport}</p>
+                </div>
+              </div>
+              <img src={example.image} alt={'Exemple de publication ' + example.sport}
+                loading="lazy" style={{ display: 'block', width: '100%', maxHeight: 480, objectFit: 'cover', borderRadius: 12 }} />
+              <div className="post-caption" style={{ paddingTop: 12 }}>
+                <strong>{example.name}</strong> {example.caption}
+              </div>
+            </article>
+          ))}
         </section>
       )}
 
@@ -1335,26 +1381,6 @@ function App() {
             </>
           )}
 
-          <div style={cardStyle}>
-            <p
-              style={{
-                fontSize: 13,
-                overflowWrap: 'anywhere'
-              }}
-            >
-              <strong>Compte :</strong> {session.user.email}
-            </p>
-
-            <button
-              onClick={handleLogout}
-              style={{
-                ...primaryStyle,
-                marginTop: 15
-              }}
-            >
-              Se déconnecter
-            </button>
-          </div>
         </section>
       )}
 
@@ -1402,6 +1428,47 @@ function App() {
           Profil
         </button>
       </nav>
+
+      {settingsOpen && (
+        <div className="creation-overlay" onClick={() => setSettingsOpen(false)}>
+          <div className="creation-panel" onClick={event => event.stopPropagation()}>
+            <div className="creation-header">
+              <h2>{archivesOpen ? 'Archives' : 'Réglages'}</h2>
+              <button className="creation-close" type="button"
+                onClick={() => archivesOpen ? setArchivesOpen(false) : setSettingsOpen(false)}
+                aria-label={archivesOpen ? 'Retour aux réglages' : 'Fermer les réglages'}>
+                {archivesOpen ? '←' : '✕'}
+              </button>
+            </div>
+            <div style={{ padding: 20 }}>
+              {archivesOpen ? (
+                <div style={{ ...cardStyle, marginTop: 0 }}>
+                  <h3 style={{ marginTop: 0 }}>Mes stories archivées</h3>
+                  <p style={{ color: '#a4a4ad', fontSize: 13 }}>
+                    Tes stories archivées apparaîtront ici lorsque les stories seront connectées à Supabase.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <button type="button" onClick={() => setArchivesOpen(true)}
+                    style={{ ...primaryStyle, background: '#24252e', textAlign: 'left', marginBottom: 16 }}>
+                    ◷  Archives  ›
+                  </button>
+                  <div style={{ ...cardStyle, marginTop: 0, marginBottom: 16 }}>
+                    <p style={{ fontSize: 13, overflowWrap: 'anywhere', margin: 0 }}>
+                      <strong>Compte :</strong> {session.user.email}
+                    </p>
+                  </div>
+                  <button type="button" onClick={handleLogout}
+                    style={{ ...primaryStyle, background: '#24252e', border: '1px solid #ff6558', color: '#ff8a4b' }}>
+                    Se déconnecter
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {selectedPost && (
         <div className="creation-overlay" onClick={() => setSelectedPost(null)}>
