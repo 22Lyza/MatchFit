@@ -1,6 +1,6 @@
 
-import { useEffect, useRef, useState } from 'react'
-import type { CSSProperties, FormEvent, TouchEvent } from 'react'
+import { useEffect, useState } from 'react'
+import type { CSSProperties, FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 
@@ -151,7 +151,7 @@ function App() {
   const [avatarFile, setAvatarFile] = useState<File | null>(null)
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
 
-  const touchStart = useRef<{ x: number; y: number } | null>(null)
+  const [selectedPost, setSelectedPost] = useState<SocialPost | null>(null)
 
   useEffect(() => {
     let active = true
@@ -350,7 +350,7 @@ function App() {
       setPostCaption('')
       setCreationOpen(false)
       setCreationType(null)
-      setPage('accueil')
+      setPage('profil')
       await loadPosts()
     } catch (error) {
       if (uploaded) {
@@ -619,31 +619,6 @@ function App() {
     changeAuthMode('connexion')
   }
 
-  function handleTouchStart(event: TouchEvent<HTMLDivElement>) {
-    touchStart.current = {
-      x: event.touches[0].clientX,
-      y: event.touches[0].clientY
-    }
-  }
-
-  function handleTouchEnd(event: TouchEvent<HTMLDivElement>) {
-    const start = touchStart.current
-    touchStart.current = null
-
-    if (!start || page !== 'accueil' || creationOpen) return
-
-    const deltaX = event.changedTouches[0].clientX - start.x
-    const deltaY = event.changedTouches[0].clientY - start.y
-
-    if (
-      deltaX > 90 &&
-      Math.abs(deltaX) > Math.abs(deltaY) * 1.5
-    ) {
-      setCreationType(null)
-      setCreationOpen(true)
-    }
-  }
-
   function openCreation(type: CreationType | null = null) {
     setCreationType(type)
     setCreationOpen(true)
@@ -889,25 +864,13 @@ function App() {
   }
 
   return (
-    <div
-      className="app"
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
-    >
+    <div className="app">
       <header className="topbar">
         <h1 className="logo">
           MATCH<span>FIT</span>
         </h1>
 
         <div className="topbar-actions">
-          <button
-            className="top-action"
-            aria-label="Créer du contenu"
-            onClick={() => openCreation()}
-          >
-            +
-          </button>
-
           <button
             className="top-action"
             aria-label="Notifications"
@@ -923,25 +886,31 @@ function App() {
       {page === 'accueil' && (
         <section className="home">
           <div className="stories">
-            {['Ma story', 'Emma', 'Lucas', 'Clara'].map(
-              (name, index) => (
+            <div className="story" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+              <div style={{ position: 'relative', width: 68, height: 68 }}>
+                <div className="story-avatar" style={{ width: 64, height: 64, overflow: 'hidden', boxSizing: 'border-box' }}>
+                  {profile?.avatar_url ? (
+                    <img src={profile.avatar_url} alt="Ma photo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (profile?.first_name?.[0]?.toUpperCase() || '♡')}
+                </div>
                 <button
-                  className="story"
-                  key={name}
-                  onClick={() =>
-                    index === 0
-                      ? openCreation('story')
-                      : alert('Stories à venir')
-                  }
-                >
-                  <div className="story-avatar">
-                    {index === 0 ? '+' : name[0]}
-                  </div>
-
-                  <span>{name}</span>
-                </button>
-              )
-            )}
+                  type="button"
+                  aria-label="Ajouter une story"
+                  onClick={() => openCreation('story')}
+                  style={{ position: 'absolute', right: -2, bottom: 0, width: 27, height: 27,
+                    borderRadius: '50%', background: '#ff6558', border: '3px solid #0b0c10',
+                    color: '#fff', fontSize: 19, fontWeight: 700, lineHeight: '20px',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                >+</button>
+              </div>
+              <span>Ma story</span>
+            </div>
+            {['Emma', 'Lucas', 'Clara'].map(name => (
+              <button className="story" key={name} onClick={() => alert('Stories bientôt disponibles')}>
+                <div className="story-avatar">{name[0]}</div>
+                <span>{name}</span>
+              </button>
+            ))}
           </div>
 
           <div className="feed-title">
@@ -951,15 +920,12 @@ function App() {
 
           {postsLoading && <p>Chargement des publications...</p>}
           {postsError && <p role="alert" style={{ color: '#ff7777' }}>{postsError}</p>}
-          {!postsLoading && posts.length === 0 && !postsError && (
+          {!postsLoading && posts.filter(post => post.user_id !== session.user.id).length === 0 && !postsError && (
             <div style={cardStyle}>
-              <p>Aucune publication pour le moment.</p>
-              <button style={primaryStyle} onClick={() => openCreation('publication')}>
-                Créer ma première publication
-              </button>
+              <p>Aucune publication des autres sportifs pour le moment.</p>
             </div>
           )}
-          {posts.map(renderPost)}
+          {posts.filter(post => post.user_id !== session.user.id).map(renderPost)}
         </section>
       )}
 
@@ -1337,6 +1303,9 @@ function App() {
 
               <div style={cardStyle}>
                 <h3 style={{ margin: 0, fontSize: 15 }}>▦ Mes publications</h3>
+                <button type="button" style={{ ...primaryStyle, marginTop: 16 }} onClick={() => openCreation('publication')}>
+                  + Ajouter une publication
+                </button>
                 {postsLoading && <p>Chargement...</p>}
                 {!postsLoading && posts.filter(post => post.user_id === session.user.id).length === 0 && (
                   <p style={{ textAlign: 'center', color: '#a4a4ad', fontSize: 13, marginTop: 25 }}>
@@ -1345,13 +1314,23 @@ function App() {
                 )}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 5, marginTop: 15 }}>
                   {posts.filter(post => post.user_id === session.user.id).map(post => (
-                    <div key={post.id} style={{ aspectRatio: '1', overflow: 'hidden', borderRadius: 8, background: '#24252e' }}>
+                    <button type="button" key={post.id} aria-label="Ouvrir ma publication"
+                      onClick={() => setSelectedPost(post)}
+                      style={{ aspectRatio: '1', overflow: 'hidden', borderRadius: 5, background: '#24252e',
+                        position: 'relative', border: 'none', padding: 0, cursor: 'pointer' }}>
                       {post.media_type === 'video' ? (
-                        <video src={post.media_url} muted playsInline preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover' }} controls />
+                        <>
+                          <video src={post.media_url} muted playsInline preload="metadata"
+                            style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          <span style={{ position: 'absolute', top: 5, right: 6, color: '#fff', textShadow: '0 1px 4px #000' }}>▶</span>
+                        </>
                       ) : (
-                        <img src={post.media_url} alt={post.caption || 'Ma publication'} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <img src={post.media_url} alt={post.caption || 'Ma publication'}
+                          style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                       )}
-                    </div>
+                    </button>
+                  ))}
+                </div>
                   ))}
                 </div>
               </div>
@@ -1426,6 +1405,26 @@ function App() {
         </button>
       </nav>
 
+      {selectedPost && (
+        <div className="creation-overlay" onClick={() => setSelectedPost(null)}>
+          <div className="creation-panel" onClick={event => event.stopPropagation()}>
+            <div className="creation-header">
+              <h2>Ma publication</h2>
+              <button className="creation-close" onClick={() => setSelectedPost(null)} aria-label="Fermer">✕</button>
+            </div>
+            <div style={{ padding: 14 }}>
+              {selectedPost.media_type === 'video' ? (
+                <video src={selectedPost.media_url} controls playsInline style={{ width: '100%', maxHeight: '65vh', objectFit: 'contain' }} />
+              ) : (
+                <img src={selectedPost.media_url} alt={selectedPost.caption || 'Ma publication'}
+                  style={{ width: '100%', maxHeight: '65vh', objectFit: 'contain' }} />
+              )}
+              <p style={{ whiteSpace: 'pre-wrap' }}>{selectedPost.caption}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {creationOpen && (
         <div className="creation-overlay">
           <div className="creation-panel">
@@ -1445,7 +1444,7 @@ function App() {
             ) : creationType === 'story' ? (
               <div className="creation-form">
                 <p>Les stories seront disponibles dans une prochaine étape.</p>
-                <button className="creation-back" onClick={() => setCreationType(null)}>Retour aux choix</button>
+                <button className="creation-back" onClick={closeCreation}>Fermer</button>
               </div>
             ) : (
               <form className="creation-form" onSubmit={publishPost}>
