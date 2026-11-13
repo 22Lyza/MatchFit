@@ -29,6 +29,16 @@ type SocialPost = {
   comments_disabled: boolean
 }
 
+// Publications fictives pour illustrer Découvrir, sans écriture dans Supabase.
+const discoverDemos: SocialPost[] = [
+  { id: 'discover-demo-emma', user_id: 'discover-demo-emma', caption: 'Emma · Running — Sortie matinale 🏃‍♀️', media_url: 'https://images.unsplash.com/photo-1552674605-db6ffd4facb5?w=900&auto=format&fit=crop&q=80', media_type: 'image', created_at: '2026-11-13', hide_like_count: false, comments_disabled: false },
+  { id: 'discover-demo-lucas', user_id: 'discover-demo-lucas', caption: 'Lucas · Musculation — Séance du jour 💪', media_url: 'https://images.unsplash.com/photo-1517836357463-d25dfeac3438?w=900&auto=format&fit=crop&q=80', media_type: 'image', created_at: '2026-11-13', hide_like_count: false, comments_disabled: false },
+  { id: 'discover-demo-clara', user_id: 'discover-demo-clara', caption: 'Clara · Fitness — Toujours motivée 🔥', media_url: 'https://images.unsplash.com/photo-1534258936925-c58bed479fcb?w=900&auto=format&fit=crop&q=80', media_type: 'image', created_at: '2026-11-13', hide_like_count: false, comments_disabled: false },
+  { id: 'discover-demo-trail', user_id: 'discover-demo-trail', caption: 'Noah · Trail — Prendre de la hauteur ⛰️', media_url: 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=900&auto=format&fit=crop&q=80', media_type: 'image', created_at: '2026-11-13', hide_like_count: false, comments_disabled: false },
+  { id: 'discover-demo-yoga', user_id: 'discover-demo-yoga', caption: 'Lina · Yoga — Un moment pour soi 🧘', media_url: 'https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?w=900&auto=format&fit=crop&q=80', media_type: 'image', created_at: '2026-11-13', hide_like_count: false, comments_disabled: false },
+  { id: 'discover-demo-course', user_id: 'discover-demo-course', caption: 'Alex · Course — Objectif atteint 🏅', media_url: 'https://images.unsplash.com/photo-1538805060514-97d9cc17730c?w=900&auto=format&fit=crop&q=80', media_type: 'image', created_at: '2026-11-13', hide_like_count: false, comments_disabled: false },
+]
+
 type PostAuthor = {
   first_name: string
   username: string | null
@@ -1154,15 +1164,12 @@ function App() {
         <section className="placeholder-page">
           <h2>Découvrir</h2>
           <p style={{ color: '#a4a4ad', fontSize: 13, marginBottom: 18 }}>
-            Explore les vraies publications des sportifs de la communauté MatchFit.
+            Explore les publications des sportifs de la communauté MatchFit et quelques exemples de démonstration.
           </p>
           {postsLoading && <p>Chargement des publications...</p>}
           {postsError && <p role="alert" style={{ color: '#ff7777' }}>{postsError}</p>}
-          {!postsLoading && !postsError && posts.length === 0 && (
-            <p style={{ color: '#a4a4ad', fontSize: 13 }}>Aucune publication pour le moment.</p>
-          )}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10, marginTop: 16 }}>
-            {posts.map(post => (
+            {[...posts, ...discoverDemos].map(post => (
               <button type="button" key={post.id}
                 aria-label={`Ouvrir la publication de ${authors[post.user_id]?.first_name || 'Sportif MatchFit'}`}
                 onClick={() => setSelectedPost(post)}
@@ -1179,6 +1186,10 @@ function App() {
                 ) : (
                   <img src={post.media_url} alt={post.caption || 'Publication sportive'} loading="lazy"
                     style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }} />
+                )}
+                {post.id.startsWith('discover-demo-') && (
+                  <span style={{ position: 'absolute', bottom: 5, left: 5, fontSize: 10,
+                    padding: '3px 6px', borderRadius: 5, color: '#fff', background: 'rgba(0,0,0,.68)' }}>Démo</span>
                 )}
               </button>
             ))}
@@ -1803,7 +1814,7 @@ function App() {
         <div className="creation-overlay" onClick={() => setSelectedPost(null)}>
           <div className="creation-panel" onClick={event => event.stopPropagation()}>
             <div className="creation-header">
-              <h2>{selectedPost.user_id === session?.user.id ? 'Ma publication' : 'Publication'}</h2>
+              <h2>{selectedPost.id.startsWith('discover-demo-') ? 'Publication · Démo' : selectedPost.user_id === session?.user.id ? 'Ma publication' : 'Publication'}</h2>
               <button className="creation-close" onClick={() => setSelectedPost(null)} aria-label="Fermer">✕</button>
             </div>
             <div style={{ padding: 14 }}>
@@ -1829,6 +1840,8 @@ function App() {
                 </label>
                 {postSettingsError && <p role="alert" style={{ color: '#ff7777', fontSize: 13 }}>{postSettingsError}</p>}
               </div>
+              ) : selectedPost.id.startsWith('discover-demo-') ? (
+                <p style={{ color: '#a4a4ad', fontSize: 12 }}>Exemple fictif : cette publication n’est pas enregistrée dans Supabase.</p>
               ) : postInteractions(selectedPost.id, selectedPost.caption,
                 authors[selectedPost.user_id]?.first_name || authors[selectedPost.user_id]?.username || 'Sportif MatchFit',
                 selectedPost.media_url, selectedPost.hide_like_count, selectedPost.comments_disabled)}
