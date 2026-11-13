@@ -558,7 +558,7 @@ function App() {
     const author = authors[post.user_id]
     const authorName = author?.first_name || author?.username || 'Sportif MatchFit'
     return (
-      <article className="post" key={post.id}>
+      <article className="post" key={post.id} style={{ marginBottom: 28 }}>
         <div className="post-header" style={{ paddingLeft: 16, paddingRight: 16 }}>
           <div className="avatar" style={{ overflow: 'hidden' }}>
             {author?.avatar_url ? (
@@ -1131,7 +1131,7 @@ function App() {
               caption: 'On reste motivés, même les jours difficiles 🔥'
             }
           ].map(example => (
-            <article className="post" key={example.name + '-demo'}>
+            <article className="post" key={example.name + '-demo'} style={{ marginBottom: 28 }}>
               <div className="post-header" style={{ paddingLeft: 16, paddingRight: 16 }}>
                 <div className="avatar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   {example.initial}
@@ -1153,9 +1153,36 @@ function App() {
       {page === 'decouvrir' && (
         <section className="placeholder-page">
           <h2>Découvrir</h2>
-          <p>
-            Explore les sportifs de la communauté MatchFit.
+          <p style={{ color: '#a4a4ad', fontSize: 13, marginBottom: 18 }}>
+            Explore les vraies publications des sportifs de la communauté MatchFit.
           </p>
+          {postsLoading && <p>Chargement des publications...</p>}
+          {postsError && <p role="alert" style={{ color: '#ff7777' }}>{postsError}</p>}
+          {!postsLoading && !postsError && posts.length === 0 && (
+            <p style={{ color: '#a4a4ad', fontSize: 13 }}>Aucune publication pour le moment.</p>
+          )}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10, marginTop: 16 }}>
+            {posts.map(post => (
+              <button type="button" key={post.id}
+                aria-label={`Ouvrir la publication de ${authors[post.user_id]?.first_name || 'Sportif MatchFit'}`}
+                onClick={() => setSelectedPost(post)}
+                style={{ aspectRatio: '1', overflow: 'hidden', borderRadius: 12,
+                  background: '#24252e', position: 'relative', border: '1px solid #30313b',
+                  padding: 0, cursor: 'pointer', display: 'block', width: '100%' }}>
+                {post.media_type === 'video' ? (
+                  <>
+                    <video src={post.media_url} muted playsInline preload="metadata"
+                      style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <span style={{ position: 'absolute', top: 8, right: 9, color: '#fff',
+                      textShadow: '0 1px 5px #000', fontSize: 16 }}>▶</span>
+                  </>
+                ) : (
+                  <img src={post.media_url} alt={post.caption || 'Publication sportive'} loading="lazy"
+                    style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }} />
+                )}
+              </button>
+            ))}
+          </div>
         </section>
       )}
 
@@ -1776,7 +1803,7 @@ function App() {
         <div className="creation-overlay" onClick={() => setSelectedPost(null)}>
           <div className="creation-panel" onClick={event => event.stopPropagation()}>
             <div className="creation-header">
-              <h2>Ma publication</h2>
+              <h2>{selectedPost.user_id === session?.user.id ? 'Ma publication' : 'Publication'}</h2>
               <button className="creation-close" onClick={() => setSelectedPost(null)} aria-label="Fermer">✕</button>
             </div>
             <div style={{ padding: 14 }}>
@@ -1787,6 +1814,7 @@ function App() {
                   style={{ width: '100%', maxHeight: '65vh', objectFit: 'contain' }} />
               )}
               <p style={{ whiteSpace: 'pre-wrap' }}>{selectedPost.caption}</p>
+              {selectedPost.user_id === session?.user.id ? (
               <div style={{ borderTop: '1px solid #30313b', paddingTop: 16, marginTop: 18 }}>
                 <h3 style={{ fontSize: 15, margin: '0 0 12px' }}>Confidentialité de cette publication</h3>
                 <label style={{ display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'center', padding: '10px 0', cursor: 'pointer' }}>
@@ -1801,6 +1829,9 @@ function App() {
                 </label>
                 {postSettingsError && <p role="alert" style={{ color: '#ff7777', fontSize: 13 }}>{postSettingsError}</p>}
               </div>
+              ) : postInteractions(selectedPost.id, selectedPost.caption,
+                authors[selectedPost.user_id]?.first_name || authors[selectedPost.user_id]?.username || 'Sportif MatchFit',
+                selectedPost.media_url, selectedPost.hide_like_count, selectedPost.comments_disabled)}
             </div>
           </div>
         </div>
