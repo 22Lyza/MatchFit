@@ -15,6 +15,8 @@ type SocialPost = {
   media_url: string
   media_type: 'image' | 'video'
   created_at: string
+  hide_like_count: boolean
+  comments_disabled: boolean
 }
 
 type PostAuthor = {
@@ -131,6 +133,12 @@ function App() {
   const [page, setPage] = useState<Page>('accueil')
   const [settingsSection, setSettingsSection] = useState<'accueil' | 'archives' | 'confidentialite' | 'securite' | 'conditions' | 'donnees'>('accueil')
   const [likedPosts, setLikedPosts] = useState<Record<string, boolean>>({})
+  const [likedComments, setLikedComments] = useState<Record<string, boolean>>({})
+  const [postMenu, setPostMenu] = useState<string | null>(null)
+  const [reportPost, setReportPost] = useState<{ id: string; author: string; demo: boolean } | null>(null)
+  const [reportReason, setReportReason] = useState('Spam')
+  const [reportDetails, setReportDetails] = useState('')
+  const [reportMessage, setReportMessage] = useState('')
   const [comments, setComments] = useState<Record<string, string[]>>({})
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({})
   const [commentModal, setCommentModal] = useState<{ id: string; author: string; caption: string } | null>(null)
@@ -145,6 +153,10 @@ function App() {
   const [publishError, setPublishError] = useState('')
   const [postFile, setPostFile] = useState<File | null>(null)
   const [postCaption, setPostCaption] = useState('')
+  const [hideLikeCount, setHideLikeCount] = useState(false)
+  const [commentsDisabled, setCommentsDisabled] = useState(false)
+  const [postSettingsBusy, setPostSettingsBusy] = useState(false)
+  const [postSettingsError, setPostSettingsError] = useState('')
   const [postPreview, setPostPreview] = useState<string | null>(null)
 
   const [profile, setProfile] = useState<SocialProfile | null>(null)
@@ -282,7 +294,7 @@ function App() {
     try {
       const { data, error } = await supabase
         .from('social_posts')
-        .select('id, user_id, caption, media_url, media_type, created_at')
+        .select('id, user_id, caption, media_url, media_type, created_at, hide_like_count, comments_disabled')
         .order('created_at', { ascending: false })
         .limit(100)
       if (error) throw error
@@ -348,12 +360,16 @@ function App() {
         user_id: session.user.id,
         caption: postCaption.trim(),
         media_url: mediaUrl,
-        media_type: postFile.type === 'video/mp4' ? 'video' : 'image'
+        media_type: postFile.type === 'video/mp4' ? 'video' : 'image',
+        hide_like_count: hideLikeCount,
+        comments_disabled: commentsDisabled
       })
       if (insertError) throw insertError
 
       setPostFile(null)
       setPostCaption('')
+      setHideLikeCount(false)
+      setCommentsDisabled(false)
       setCreationOpen(false)
       setCreationType(null)
       setPage('profil')
@@ -374,7 +390,26 @@ function App() {
     setCreationType(null)
     setPostFile(null)
     setPostCaption('')
+    setHideLikeCount(false)
+    setCommentsDisabled(false)
     setPublishError('')
+  }
+
+  async function updatePostPrivacy(post: SocialPost, changes: Partial<Pick<SocialPost, 'hide_like_count' | 'comments_disabled'>>) {
+    if (!session || post.user_id !== session.user.id || postSettingsBusy) return
+    setPostSettingsBusy(true)
+    setPostSettingsError('')
+    try {
+      const { error } = await supabase.from('social_posts')
+        .update(changes).eq('id', post.id).eq('user_id', session.user.id)
+      if (error) throw error
+      setPosts(current => current.map(item => item.id === post.id ? { ...item, ...changes } : item))
+      setSelectedPost(current => current?.id === post.id ? { ...current, ...changes } : current)
+    } catch (error) {
+      setPostSettingsError(error instanceof Error ? error.message : 'Modification impossible.')
+    } finally {
+      setPostSettingsBusy(false)
+    }
   }
 
   function toggleLike(postId: string) {
@@ -423,7 +458,48 @@ function App() {
     ]
   }
 
-  function postInteractions(postId: string, caption: string, authorName: string, mediaUrl?: string) {
+  function postOptions(postId: string, authorName: string, isDemo: boolean) {
+    return (
+      <div style={{ marginLeft: 'auto', position: 'relative' }}>
+        <button type="button" aria-label={`Options de la publication de ${authorName}`}
+          aria-expanded={postMenu === postId}
+          onClick={() => setPostMenu(current => current === postId ? null : postId)}
+          style={{ background: 'transparent', border: 'none', color: '#f5f5f5',
+            fontSize: 25, lineHeight: 1, padding: '8px 4px', cursor: 'pointer' }}>•••</button>
+        {postMenu === postId && (
+          <div style={{ position: 'absolute', right: 0, top: '100%', zIndex: 20,
+            background: '#24252e', border: '1px solid #444550', borderRadius: 12,
+            boxShadow: '0 8px 25px rgba(0,0,0,.45)', minWidth: 205, padding: 5 }}>
+            <button type="button" onClick={() => {
+              setPostMenu(null)
+              setReportPost({ id: postId, author: authorName, demo: isDemo })
+              setReportReason('Spam')
+              setReportDetails('')
+              setReportMessage('')
+            }} style={{ width: '100%', textAlign: 'left', background: 'transparent',
+              border: 'none', padding: '12px', color: '#ff8a83', cursor: 'pointer', fontSize: 14 }}>
+              Signaler la publication
+            </button>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  function commentHeart(postId: string, index: number) {
+    const key = `${postId}:${index}`
+    const liked = !!likedComments[key]
+    return (
+      <button type="button" aria-label={liked ? 'Ne plus aimer ce commentaire' : 'Aimer ce commentaire'}
+        aria-pressed={liked} onClick={() => setLikedComments(current => ({ ...current, [key]: !current[key] }))}
+        style={{ flexShrink: 0, background: 'transparent', border: 'none', padding: '6px',
+          color: liked ? '#ff6558' : '#a4a4ad', cursor: 'pointer', fontSize: 20 }}>
+        {liked ? '♥' : '♡'}
+      </button>
+    )
+  }
+
+  function postInteractions(postId: string, caption: string, authorName: string, mediaUrl?: string, hideLikeCount = false, commentsOff = false) {
     const existing = demoComments[postId] || []
     const added = comments[postId] || []
     const total = existing.length + added.length
@@ -434,32 +510,33 @@ function App() {
             style={{ ...linkStyle, color: likedPosts[postId] ? '#ff6558' : '#f5f5f5', fontSize: 27, padding: '2px 0' }}>
             {likedPosts[postId] ? '♥' : '♡'}
           </button>
-          <button type="button" onClick={() => setCommentModal({ id: postId, author: authorName, caption })}
+          {!commentsOff && <button type="button" onClick={() => setCommentModal({ id: postId, author: authorName, caption })}
             aria-label="Voir et ajouter des commentaires"
             style={{ ...linkStyle, color: '#f5f5f5', padding: '2px 0', display: 'flex', alignItems: 'center' }}>
             <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5 9 9 0 0 1-4-.9L3 21l1.9-5.5a9 9 0 0 1-.9-4A8.5 8.5 0 0 1 12.5 3 8.5 8.5 0 0 1 21 11.5Z" />
             </svg>
-          </button>
+          </button>}
           <button type="button" onClick={() => void sharePost(postId, caption, mediaUrl)} aria-label="Partager"
             style={{ ...linkStyle, color: '#f5f5f5', fontSize: 25, padding: '2px 0' }}>↗</button>
         </div>
-        <p style={{ margin: '5px 0 8px', fontSize: 13, fontWeight: 700 }}>{likedPosts[postId] ? '1 J’aime' : '0 J’aime'}</p>
+        {!hideLikeCount && <p style={{ margin: '5px 0 8px', fontSize: 13, fontWeight: 700 }}>{likedPosts[postId] ? '1 J’aime' : '0 J’aime'}</p>}
         {caption.trim() && (
           <p style={{ margin: '7px 0 8px', fontSize: 13, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
             <strong>{authorName}</strong> {caption}
           </p>
         )}
-        {total > 0 && (
+        {!commentsOff && total > 0 && (
           <>
             <button type="button" onClick={() => setCommentModal({ id: postId, author: authorName, caption })}
               style={{ ...linkStyle, padding: '3px 0 7px', color: '#a4a4ad', fontSize: 13 }}>
               Voir les {total} commentaires
             </button>
             {[...existing, ...added.map(text => ({ name: 'Moi', text }))].slice(0, 3).map((comment, index) => (
-              <p key={index} style={{ margin: '5px 0', fontSize: 13, color: '#e6e6e9' }}>
-                <strong>{comment.name}</strong> {comment.text}
-              </p>
+              <div key={index} style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '5px 0', fontSize: 13, color: '#e6e6e9' }}>
+                <span style={{ flex: 1 }}><strong>{comment.name}</strong> {comment.text}</span>
+                {commentHeart(postId, index)}
+              </div>
             ))}
           </>
         )}
@@ -482,6 +559,7 @@ function App() {
             <strong>{authorName}</strong>
             <p>{new Date(post.created_at).toLocaleDateString('fr-CH', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
           </div>
+          {post.user_id !== session?.user.id && postOptions(post.id, authorName, false)}
         </div>
         <div style={{ margin: '0 16px', background: '#101116', borderRadius: 12, overflow: 'hidden' }}>
           {post.media_type === 'video' ? (
@@ -490,7 +568,7 @@ function App() {
             <img src={post.media_url} alt={post.caption || 'Publication sportive'} style={{ display: 'block', width: '100%', maxHeight: 520, objectFit: 'contain' }} />
           )}
         </div>
-        {postInteractions(post.id, post.caption, authorName, post.media_url)}
+        {postInteractions(post.id, post.caption, authorName, post.media_url, post.hide_like_count, post.comments_disabled)}
       </article>
     )
   }
@@ -1052,6 +1130,7 @@ function App() {
                   <strong>{example.name} <span style={{ color: '#a4a4ad', fontWeight: 400, fontSize: 11 }}>· Démo</span></strong>
                   <p>{example.sport}</p>
                 </div>
+                {postOptions('demo-' + example.name, example.name, true)}
               </div>
               <img src={example.image} alt={'Exemple de publication ' + example.sport}
                 loading="lazy" style={{ display: 'block', width: 'calc(100% - 32px)', margin: '0 16px', maxHeight: 480, objectFit: 'cover', borderRadius: 12 }} />
@@ -1515,7 +1594,46 @@ function App() {
         </button>
       </nav>}
 
-      {commentModal && (
+      {reportPost && (
+        <div role="presentation" onClick={() => setReportPost(null)}
+          style={{ position: 'fixed', inset: 0, zIndex: 10001, background: 'rgba(0,0,0,.7)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div role="dialog" aria-modal="true" aria-label="Signaler une publication"
+            onClick={event => event.stopPropagation()}
+            style={{ width: '100%', maxWidth: 400, background: '#17181f', color: '#fff',
+              padding: 22, borderRadius: 20, border: '1px solid #30313b', boxSizing: 'border-box' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h2 style={{ fontSize: 19, margin: 0 }}>Signaler la publication</h2>
+              <button type="button" onClick={() => setReportPost(null)} aria-label="Fermer"
+                style={{ ...linkStyle, color: '#fff', fontSize: 25 }}>×</button>
+            </div>
+            <p style={{ fontSize: 13, color: '#a4a4ad', margin: '14px 0' }}>
+              Publication de {reportPost.author}
+            </p>
+            <form onSubmit={event => {
+              event.preventDefault()
+              // La collecte et la modération des signalements nécessitent une table Supabase dédiée.
+              setReportMessage('Fonction de démonstration : aucun signalement n’a été transmis. La connexion à Supabase reste à créer.')
+            }}>
+              <label htmlFor="report-reason">Motif du signalement</label>
+              <select id="report-reason" value={reportReason} onChange={event => setReportReason(event.target.value)}
+                style={fieldStyle}>
+                {['Spam', 'Contenu inapproprié', 'Harcèlement', 'Fausse information', 'Autre'].map(reason => (
+                  <option key={reason} value={reason}>{reason}</option>
+                ))}
+              </select>
+              <label htmlFor="report-details">Précisions (facultatif)</label>
+              <textarea id="report-details" rows={3} maxLength={500} value={reportDetails}
+                onChange={event => setReportDetails(event.target.value)} style={fieldStyle}
+                placeholder="Explique le problème..." />
+              <button type="submit" style={primaryStyle}>Signaler</button>
+              {reportMessage && <p role="status" style={{ color: '#ffba87', fontSize: 13, lineHeight: 1.5 }}>{reportMessage}</p>}
+            </form>
+          </div>
+        </div>
+      )}
+
+      {commentModal && !posts.some(post => post.id === commentModal.id && post.comments_disabled) && (
         <div
           role="presentation"
           onClick={() => setCommentModal(null)}
@@ -1555,7 +1673,8 @@ function App() {
                 <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#30313b', color: '#ff8a4b', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontWeight: 700 }}>
                   {comment.name.charAt(0).toUpperCase()}
                 </div>
-                <p style={{ margin: '7px 0 0', fontSize: 14, lineHeight: 1.5 }}><strong>{comment.name}</strong> {comment.text}</p>
+                <p style={{ margin: '7px 0 0', fontSize: 14, lineHeight: 1.5, flex: 1 }}><strong>{comment.name}</strong> {comment.text}</p>
+                {commentHeart(commentModal.id, index)}
               </div>
             ))}
             {(demoComments[commentModal.id] || []).length === 0 && (comments[commentModal.id] || []).length === 0 && (
@@ -1658,6 +1777,20 @@ function App() {
                   style={{ width: '100%', maxHeight: '65vh', objectFit: 'contain' }} />
               )}
               <p style={{ whiteSpace: 'pre-wrap' }}>{selectedPost.caption}</p>
+              <div style={{ borderTop: '1px solid #30313b', paddingTop: 16, marginTop: 18 }}>
+                <h3 style={{ fontSize: 15, margin: '0 0 12px' }}>Confidentialité de cette publication</h3>
+                <label style={{ display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'center', padding: '10px 0', cursor: 'pointer' }}>
+                  <span>Masquer le nombre de J’aime</span>
+                  <input type="checkbox" checked={selectedPost.hide_like_count} disabled={postSettingsBusy}
+                    onChange={event => void updatePostPrivacy(selectedPost, { hide_like_count: event.target.checked })} />
+                </label>
+                <label style={{ display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'center', padding: '10px 0', cursor: 'pointer' }}>
+                  <span>Désactiver les commentaires</span>
+                  <input type="checkbox" checked={selectedPost.comments_disabled} disabled={postSettingsBusy}
+                    onChange={event => void updatePostPrivacy(selectedPost, { comments_disabled: event.target.checked })} />
+                </label>
+                {postSettingsError && <p role="alert" style={{ color: '#ff7777', fontSize: 13 }}>{postSettingsError}</p>}
+              </div>
             </div>
           </div>
         </div>
@@ -1709,6 +1842,17 @@ function App() {
                   value={postCaption}
                   onChange={event => setPostCaption(event.target.value)}
                 />
+                <div style={{ padding: '14px', background: '#24252e', borderRadius: 12, marginBottom: 16 }}>
+                  <h3 style={{ fontSize: 15, margin: '0 0 12px' }}>Confidentialité de la publication</h3>
+                  <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16, cursor: 'pointer' }}>
+                    <span><strong>Masquer le nombre de J’aime</strong><small style={{ display: 'block', color: '#a4a4ad', marginTop: 4 }}>Les autres ne verront pas le compteur.</small></span>
+                    <input type="checkbox" checked={hideLikeCount} onChange={event => setHideLikeCount(event.target.checked)} disabled={publishBusy} />
+                  </label>
+                  <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+                    <span><strong>Désactiver les commentaires</strong><small style={{ display: 'block', color: '#a4a4ad', marginTop: 4 }}>Personne ne pourra commenter.</small></span>
+                    <input type="checkbox" checked={commentsDisabled} onChange={event => setCommentsDisabled(event.target.checked)} disabled={publishBusy} />
+                  </label>
+                </div>
                 {publishError && <p role="alert" style={{ color: '#ff7777', fontSize: 13 }}>{publishError}</p>}
                 <button className="publish-button" type="submit" disabled={publishBusy || !postFile}>
                   {publishBusy ? 'Publication en cours...' : 'Publier'}
