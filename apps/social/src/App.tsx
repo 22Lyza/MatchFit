@@ -170,36 +170,46 @@ function App() {
     }
 
     let cancelled = false
-    setProfileLoading(true)
-    setProfileError('')
-    setProfileMessage('')
 
-    void supabase
-      .from('social_profiles')
-      .select('user_id, first_name, username, city, sports, bio, avatar_url')
-      .eq('user_id', userId)
-      .maybeSingle()
-      .then(({ data, error }) => {
+    async function loadProfile() {
+      setProfileLoading(true)
+      setProfileError('')
+      setProfileMessage('')
+
+      try {
+        const { data, error } = await supabase
+          .from('social_profiles')
+          .select(
+            'user_id, first_name, username, city, sports, bio, avatar_url'
+          )
+          .eq('user_id', userId)
+          .maybeSingle()
+
         if (cancelled) return
 
-        if (error) {
-          setProfileError('Impossible de charger ton profil : ' + error.message)
-          setProfile(emptyProfile(userId))
-        } else {
-          const loaded = (data as SocialProfile | null) ?? emptyProfile(userId)
-          setProfile(loaded)
-          setSportsText(loaded.sports.join(', '))
-          setProfileEditing(!data)
-        }
+        if (error) throw error
 
-        setProfileLoading(false)
-      })
-      .catch(() => {
+        const loaded =
+          (data as SocialProfile | null) ?? emptyProfile(userId!)
+
+        setProfile(loaded)
+        setSportsText(loaded.sports.join(', '))
+        setProfileEditing(!data)
+      } catch (error) {
         if (cancelled) return
-        setProfileError('Impossible de charger ton profil.')
-        setProfile(emptyProfile(userId))
-        setProfileLoading(false)
-      })
+
+        setProfileError(
+          error instanceof Error
+            ? 'Impossible de charger ton profil : ' + error.message
+            : 'Impossible de charger ton profil.'
+        )
+        setProfile(emptyProfile(userId!))
+      } finally {
+        if (!cancelled) setProfileLoading(false)
+      }
+    }
+
+    void loadProfile()
 
     return () => {
       cancelled = true
@@ -219,11 +229,14 @@ function App() {
   }, [avatarFile])
 
   function updateProfile(changes: Partial<SocialProfile>) {
-    setProfile(current => current ? { ...current, ...changes } : current)
+    setProfile(current =>
+      current ? { ...current, ...changes } : current
+    )
   }
 
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+
     if (!session || !profile || profileBusy) return
 
     const username =
@@ -244,7 +257,9 @@ function App() {
       let avatarUrl = profile.avatar_url
 
       if (avatarFile) {
-        if (!['image/jpeg', 'image/png', 'image/webp'].includes(avatarFile.type)) {
+        if (
+          !['image/jpeg', 'image/png', 'image/webp'].includes(avatarFile.type)
+        ) {
           throw new Error('Choisis une photo JPG, PNG ou WebP.')
         }
 
@@ -269,7 +284,9 @@ function App() {
           })
 
         if (uploadError) {
-          throw new Error('Photo non enregistrée : ' + uploadError.message)
+          throw new Error(
+            'Photo non enregistrée : ' + uploadError.message
+          )
         }
 
         avatarUrl = supabase.storage
@@ -301,8 +318,11 @@ function App() {
 
       if (error) {
         if (error.code === '23505') {
-          throw new Error('Ce pseudo est déjà utilisé. Choisis-en un autre.')
+          throw new Error(
+            'Ce pseudo est déjà utilisé. Choisis-en un autre.'
+          )
         }
+
         throw error
       }
 
@@ -333,6 +353,7 @@ function App() {
 
   async function handleAuth(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+
     if (authBusy) return
 
     setAuthBusy(true)
@@ -370,7 +391,7 @@ function App() {
 
         if (!data.session) {
           setAuthMessage(
-            'Vérifie ta boîte e-mail pour confirmer ton inscription.'
+            'Si cette adresse peut être inscrite, vérifie ta boîte e-mail pour confirmer ton inscription.'
           )
           setShowLoginSuggestion(true)
         } else {
@@ -386,7 +407,9 @@ function App() {
       } else {
         const { error } = await supabase.auth.resetPasswordForEmail(
           email.trim(),
-          { redirectTo: window.location.origin }
+          {
+            redirectTo: window.location.origin
+          }
         )
 
         if (error) throw error
@@ -437,7 +460,10 @@ function App() {
     const deltaX = event.changedTouches[0].clientX - start.x
     const deltaY = event.changedTouches[0].clientY - start.y
 
-    if (deltaX > 90 && Math.abs(deltaX) > Math.abs(deltaY) * 1.5) {
+    if (
+      deltaX > 90 &&
+      Math.abs(deltaX) > Math.abs(deltaY) * 1.5
+    ) {
       setCreationType(null)
       setCreationOpen(true)
     }
@@ -456,6 +482,7 @@ function App() {
             MATCH<span>FIT</span>
           </h1>
         </header>
+
         <p style={{ textAlign: 'center', marginTop: 60 }}>
           Chargement...
         </p>
@@ -472,14 +499,16 @@ function App() {
           </h1>
         </header>
 
-        <main style={{
-          maxWidth: 390,
-          margin: '55px auto',
-          padding: 25,
-          border: '1px solid #30313b',
-          borderRadius: 24,
-          background: '#17181f'
-        }}>
+        <main
+          style={{
+            maxWidth: 390,
+            margin: '55px auto',
+            padding: 25,
+            border: '1px solid #30313b',
+            borderRadius: 24,
+            background: '#17181f'
+          }}
+        >
           <h2 style={{ textAlign: 'center', marginTop: 0 }}>
             {authMode === 'connexion'
               ? 'Bienvenue sur MatchFit'
@@ -488,12 +517,14 @@ function App() {
                 : 'Mot de passe oublié'}
           </h2>
 
-          <p style={{
-            textAlign: 'center',
-            color: '#a4a4ad',
-            fontSize: 13,
-            marginBottom: 25
-          }}>
+          <p
+            style={{
+              textAlign: 'center',
+              color: '#a4a4ad',
+              fontSize: 13,
+              marginBottom: 25
+            }}
+          >
             {authMode === 'connexion'
               ? 'Connecte-toi à ta communauté sportive.'
               : authMode === 'inscription'
@@ -502,7 +533,9 @@ function App() {
           </p>
 
           <form onSubmit={handleAuth}>
-            <label htmlFor="auth-email">Adresse e-mail</label>
+            <label htmlFor="auth-email">
+              Adresse e-mail
+            </label>
 
             <input
               id="auth-email"
@@ -517,7 +550,9 @@ function App() {
 
             {authMode !== 'oubli' && (
               <>
-                <label htmlFor="auth-password">Mot de passe</label>
+                <label htmlFor="auth-password">
+                  Mot de passe
+                </label>
 
                 <div style={{ position: 'relative' }}>
                   <input
@@ -531,9 +566,14 @@ function App() {
                     minLength={8}
                     required
                     value={password}
-                    onChange={event => setPassword(event.target.value)}
+                    onChange={event =>
+                      setPassword(event.target.value)
+                    }
                     placeholder="Minimum 8 caractères"
-                    style={{ ...fieldStyle, paddingRight: 55 }}
+                    style={{
+                      ...fieldStyle,
+                      paddingRight: 55
+                    }}
                   />
 
                   <button
@@ -544,7 +584,9 @@ function App() {
                         : 'Afficher le mot de passe'
                     }
                     aria-pressed={showPassword}
-                    onClick={() => setShowPassword(!showPassword)}
+                    onClick={() =>
+                      setShowPassword(!showPassword)
+                    }
                     style={{
                       position: 'absolute',
                       right: 12,
@@ -567,17 +609,26 @@ function App() {
             )}
 
             {authError && (
-              <p role="alert" style={{ color: '#ff7777', fontSize: 13 }}>
+              <p
+                role="alert"
+                style={{
+                  color: '#ff7777',
+                  fontSize: 13
+                }}
+              >
                 {authError}
               </p>
             )}
 
             {authMessage && (
-              <p role="status" style={{
-                color: '#8ee0aa',
-                fontSize: 13,
-                lineHeight: 1.6
-              }}>
+              <p
+                role="status"
+                style={{
+                  color: '#8ee0aa',
+                  fontSize: 13,
+                  lineHeight: 1.6
+                }}
+              >
                 {authMessage}
               </p>
             )}
@@ -585,7 +636,9 @@ function App() {
             {showLoginSuggestion && (
               <button
                 type="button"
-                onClick={() => changeAuthMode('connexion')}
+                onClick={() =>
+                  changeAuthMode('connexion')
+                }
                 style={{
                   ...linkStyle,
                   width: '100%',
@@ -616,23 +669,30 @@ function App() {
             </button>
           </form>
 
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            marginTop: 15
-          }}>
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              marginTop: 15
+            }}
+          >
             {authMode === 'connexion' ? (
               <>
                 <button
                   style={linkStyle}
-                  onClick={() => changeAuthMode('oubli')}
+                  onClick={() =>
+                    changeAuthMode('oubli')
+                  }
                 >
                   Mot de passe oublié ?
                 </button>
+
                 <button
                   style={linkStyle}
-                  onClick={() => changeAuthMode('inscription')}
+                  onClick={() =>
+                    changeAuthMode('inscription')
+                  }
                 >
                   Pas encore de compte ? Inscris-toi
                 </button>
@@ -640,7 +700,9 @@ function App() {
             ) : (
               <button
                 style={linkStyle}
-                onClick={() => changeAuthMode('connexion')}
+                onClick={() =>
+                  changeAuthMode('connexion')
+                }
               >
                 Retour à la connexion
               </button>
@@ -674,7 +736,9 @@ function App() {
           <button
             className="top-action"
             aria-label="Notifications"
-            onClick={() => alert('Notifications à venir')}
+            onClick={() =>
+              alert('Notifications à venir')
+            }
           >
             ♡
           </button>
@@ -698,6 +762,7 @@ function App() {
                   <div className="story-avatar">
                     {index === 0 ? '+' : name[0]}
                   </div>
+
                   <span>{name}</span>
                 </button>
               )
@@ -712,6 +777,7 @@ function App() {
           <article className="post">
             <div className="post-header">
               <div className="avatar">E</div>
+
               <div>
                 <strong>Emma</strong>
                 <p>Trail running • Aujourd'hui</p>
@@ -726,21 +792,27 @@ function App() {
 
             <div className="post-actions">
               <button
-                onClick={() => setLiked(!liked)}
+                onClick={() =>
+                  setLiked(!liked)
+                }
                 aria-label="J'aime"
               >
                 {liked ? '❤️' : '♡'} {liked ? 129 : 128}
               </button>
 
               <button
-                onClick={() => alert('Commentaires à venir')}
+                onClick={() =>
+                  alert('Commentaires à venir')
+                }
                 aria-label="Commentaires"
               >
                 ♧ 12
               </button>
 
               <button
-                onClick={() => alert('Partage à venir')}
+                onClick={() =>
+                  alert('Partage à venir')
+                }
                 aria-label="Partager"
               >
                 ↗
@@ -758,7 +830,9 @@ function App() {
       {page === 'decouvrir' && (
         <section className="placeholder-page">
           <h2>Découvrir</h2>
-          <p>Explore les sportifs de la communauté MatchFit.</p>
+          <p>
+            Explore les sportifs de la communauté MatchFit.
+          </p>
         </section>
       )}
 
@@ -775,7 +849,9 @@ function App() {
       {page === 'messages' && (
         <section className="placeholder-page">
           <h2>Messages</h2>
-          <p>Retrouve tes conversations avec les autres sportifs.</p>
+          <p>
+            Retrouve tes conversations avec les autres sportifs.
+          </p>
         </section>
       )}
 
@@ -789,26 +865,34 @@ function App() {
           ) : profile && (
             <>
               <div style={cardStyle}>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 16
-                }}>
-                  <div style={{
-                    width: 80,
-                    height: 80,
-                    borderRadius: '50%',
-                    border: '2px solid #ff6558',
-                    background: '#24252e',
+                <div
+                  style={{
                     display: 'flex',
-                    justifyContent: 'center',
                     alignItems: 'center',
-                    overflow: 'hidden',
-                    flexShrink: 0
-                  }}>
+                    gap: 16
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 80,
+                      height: 80,
+                      borderRadius: '50%',
+                      border: '2px solid #ff6558',
+                      background: '#24252e',
+                      display: 'flex',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      overflow: 'hidden',
+                      flexShrink: 0
+                    }}
+                  >
                     {(avatarPreview || profile.avatar_url) ? (
                       <img
-                        src={avatarPreview || profile.avatar_url || ''}
+                        src={
+                          avatarPreview ||
+                          profile.avatar_url ||
+                          ''
+                        }
                         alt="Photo de profil"
                         style={{
                           width: '100%',
@@ -817,10 +901,12 @@ function App() {
                         }}
                       />
                     ) : (
-                      <span style={{
-                        fontSize: 30,
-                        color: '#ff8a4b'
-                      }}>
+                      <span
+                        style={{
+                          fontSize: 30,
+                          color: '#ff8a4b'
+                        }}
+                      >
                         {profile.first_name
                           ? profile.first_name[0].toUpperCase()
                           : '♡'}
@@ -833,48 +919,59 @@ function App() {
                       {profile.first_name || 'Ton prénom'}
                     </h3>
 
-                    <p style={{
-                      margin: '0 0 5px',
-                      color: '#ff8a4b'
-                    }}>
+                    <p
+                      style={{
+                        margin: '0 0 5px',
+                        color: '#ff8a4b'
+                      }}
+                    >
                       {profile.username
                         ? '@' + profile.username
                         : '@tonpseudo'}
                     </p>
 
-                    <p style={{
-                      margin: 0,
-                      color: '#a4a4ad',
-                      fontSize: 13
-                    }}>
+                    <p
+                      style={{
+                        margin: 0,
+                        color: '#a4a4ad',
+                        fontSize: 13
+                      }}
+                    >
                       📍 {profile.city || 'Ta ville'}
                     </p>
                   </div>
                 </div>
 
-                <p style={{
-                  marginTop: 18,
-                  whiteSpace: 'pre-wrap'
-                }}>
-                  {profile.bio || 'Ajoute ta biographie sportive 💪'}
+                <p
+                  style={{
+                    marginTop: 18,
+                    whiteSpace: 'pre-wrap'
+                  }}
+                >
+                  {profile.bio ||
+                    'Ajoute ta biographie sportive 💪'}
                 </p>
 
-                <p style={{
-                  fontSize: 13,
-                  color: '#ff8a4b'
-                }}>
+                <p
+                  style={{
+                    fontSize: 13,
+                    color: '#ff8a4b'
+                  }}
+                >
                   {profile.sports.length
                     ? profile.sports.join(' · ')
                     : 'Ajoute tes sports favoris'}
                 </p>
 
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(3, 1fr)',
-                  gap: 8,
-                  marginTop: 20,
-                  textAlign: 'center'
-                }}>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(3, 1fr)',
+                    gap: 8,
+                    marginTop: 20,
+                    textAlign: 'center'
+                  }}
+                >
                   {[
                     ['0', 'Publications'],
                     ['0', 'Activités'],
@@ -891,11 +988,14 @@ function App() {
                       <strong style={{ fontSize: 18 }}>
                         {count}
                       </strong>
-                      <p style={{
-                        fontSize: 11,
-                        color: '#a4a4ad',
-                        marginBottom: 0
-                      }}>
+
+                      <p
+                        style={{
+                          fontSize: 11,
+                          color: '#a4a4ad',
+                          marginBottom: 0
+                        }}
+                      >
                         {label}
                       </p>
                     </div>
@@ -920,7 +1020,10 @@ function App() {
               </div>
 
               {profileEditing && (
-                <form onSubmit={saveProfile} style={cardStyle}>
+                <form
+                  onSubmit={saveProfile}
+                  style={cardStyle}
+                >
                   <h3 style={{ marginTop: 0 }}>
                     Modifier mon profil
                   </h3>
@@ -934,7 +1037,9 @@ function App() {
                     type="file"
                     accept="image/jpeg,image/png,image/webp"
                     onChange={event =>
-                      setAvatarFile(event.target.files?.[0] || null)
+                      setAvatarFile(
+                        event.target.files?.[0] || null
+                      )
                     }
                     style={{
                       ...fieldStyle,
@@ -945,11 +1050,14 @@ function App() {
                   <label htmlFor="profile-first-name">
                     Prénom
                   </label>
+
                   <input
                     id="profile-first-name"
                     value={profile.first_name}
                     onChange={event =>
-                      updateProfile({ first_name: event.target.value })
+                      updateProfile({
+                        first_name: event.target.value
+                      })
                     }
                     placeholder="Ton prénom"
                     maxLength={60}
@@ -960,11 +1068,14 @@ function App() {
                   <label htmlFor="profile-username">
                     Pseudo
                   </label>
+
                   <input
                     id="profile-username"
                     value={profile.username || ''}
                     onChange={event =>
-                      updateProfile({ username: event.target.value })
+                      updateProfile({
+                        username: event.target.value
+                      })
                     }
                     placeholder="tonpseudo"
                     maxLength={30}
@@ -974,11 +1085,14 @@ function App() {
                   <label htmlFor="profile-city">
                     Ville
                   </label>
+
                   <input
                     id="profile-city"
                     value={profile.city}
                     onChange={event =>
-                      updateProfile({ city: event.target.value })
+                      updateProfile({
+                        city: event.target.value
+                      })
                     }
                     placeholder="Ta ville"
                     maxLength={100}
@@ -988,30 +1102,38 @@ function App() {
                   <label htmlFor="profile-sports">
                     Sports favoris
                   </label>
+
                   <input
                     id="profile-sports"
                     value={sportsText}
-                    onChange={event => setSportsText(event.target.value)}
+                    onChange={event =>
+                      setSportsText(event.target.value)
+                    }
                     placeholder="Musculation, Trail, Running"
                     style={fieldStyle}
                   />
 
-                  <p style={{
-                    fontSize: 12,
-                    color: '#a4a4ad',
-                    marginTop: -10
-                  }}>
+                  <p
+                    style={{
+                      fontSize: 12,
+                      color: '#a4a4ad',
+                      marginTop: -10
+                    }}
+                  >
                     Sépare tes sports par une virgule.
                   </p>
 
                   <label htmlFor="profile-bio">
                     Biographie
                   </label>
+
                   <textarea
                     id="profile-bio"
                     value={profile.bio}
                     onChange={event =>
-                      updateProfile({ bio: event.target.value })
+                      updateProfile({
+                        bio: event.target.value
+                      })
                     }
                     placeholder="Parle de ta passion du sport..."
                     rows={4}
@@ -1054,41 +1176,51 @@ function App() {
               )}
 
               {profileError && (
-                <p role="alert" style={{
-                  color: '#ff7777',
-                  fontSize: 13
-                }}>
+                <p
+                  role="alert"
+                  style={{
+                    color: '#ff7777',
+                    fontSize: 13
+                  }}
+                >
                   {profileError}
                 </p>
               )}
 
               {profileMessage && (
-                <p role="status" style={{
-                  color: '#8ee0aa',
-                  fontSize: 13
-                }}>
+                <p
+                  role="status"
+                  style={{
+                    color: '#8ee0aa',
+                    fontSize: 13
+                  }}
+                >
                   {profileMessage}
                 </p>
               )}
 
               <div style={cardStyle}>
-                <div style={{
-                  display: 'flex',
-                  justifyContent: 'space-around',
-                  gap: 10,
-                  fontSize: 13,
-                  fontWeight: 700
-                }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-around',
+                    gap: 10,
+                    fontSize: 13,
+                    fontWeight: 700
+                  }}
+                >
                   <span>▦ Publications</span>
                   <span>⌁ Activités</span>
                 </div>
 
-                <p style={{
-                  textAlign: 'center',
-                  color: '#a4a4ad',
-                  fontSize: 13,
-                  marginTop: 25
-                }}>
+                <p
+                  style={{
+                    textAlign: 'center',
+                    color: '#a4a4ad',
+                    fontSize: 13,
+                    marginTop: 25
+                  }}
+                >
                   Tes publications et activités apparaîtront ici.
                 </p>
               </div>
@@ -1096,10 +1228,12 @@ function App() {
           )}
 
           <div style={cardStyle}>
-            <p style={{
-              fontSize: 13,
-              overflowWrap: 'anywhere'
-            }}>
+            <p
+              style={{
+                fontSize: 13,
+                overflowWrap: 'anywhere'
+              }}
+            >
               <strong>Compte :</strong> {session.user.email}
             </p>
 
@@ -1188,19 +1322,27 @@ function App() {
             {creationType === null ? (
               <div className="creation-options">
                 <button
-                  onClick={() => setCreationType('story')}
+                  onClick={() =>
+                    setCreationType('story')
+                  }
                 >
                   <span>◉</span>
                   <strong>Story</strong>
-                  <small>Partage un moment sportif</small>
+                  <small>
+                    Partage un moment sportif
+                  </small>
                 </button>
 
                 <button
-                  onClick={() => setCreationType('publication')}
+                  onClick={() =>
+                    setCreationType('publication')
+                  }
                 >
                   <span>▣</span>
                   <strong>Publication</strong>
-                  <small>Photo, vidéo et performance</small>
+                  <small>
+                    Photo, vidéo et performance
+                  </small>
                 </button>
               </div>
             ) : (
@@ -1240,7 +1382,9 @@ function App() {
 
                 <button
                   className="creation-back"
-                  onClick={() => setCreationType(null)}
+                  onClick={() =>
+                    setCreationType(null)
+                  }
                 >
                   Retour aux choix
                 </button>
