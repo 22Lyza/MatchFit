@@ -186,7 +186,6 @@ function App() {
           .maybeSingle()
 
         if (cancelled) return
-
         if (error) throw error
 
         const loaded =
@@ -1200,18 +1199,14 @@ function App() {
               )}
 
               <div style={cardStyle}>
-                <div
+                <h3
                   style={{
-                    display: 'flex',
-                    justifyContent: 'space-around',
-                    gap: 10,
-                    fontSize: 13,
-                    fontWeight: 700
+                    margin: 0,
+                    fontSize: 15
                   }}
                 >
-                  <span>▦ Publications</span>
-                  <span>⌁ Activités</span>
-                </div>
+                  ▦ Mes publications
+                </h3>
 
                 <p
                   style={{
@@ -1221,7 +1216,7 @@ function App() {
                     marginTop: 25
                   }}
                 >
-                  Tes publications et activités apparaîtront ici.
+                  Tes publications apparaîtront ici.
                 </p>
               </div>
             </>
