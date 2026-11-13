@@ -702,7 +702,6 @@ function App() {
     }
 
     setPage('accueil')
-    setArchivesOpen(false)
     setCreationOpen(false)
     setCreationType(null)
     changeAuthMode('connexion')
