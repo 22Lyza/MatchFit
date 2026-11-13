@@ -702,7 +702,6 @@ function App() {
     }
 
     setPage('accueil')
-    setSettingsOpen(false)
     setArchivesOpen(false)
     setCreationOpen(false)
     setCreationType(null)
