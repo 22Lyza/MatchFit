@@ -4,6 +4,16 @@ import type { CSSProperties, FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 
+function ModernHeart({ filled, size = 26 }: { filled: boolean; size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24"
+      fill={filled ? 'currentColor' : 'none'} stroke="currentColor"
+      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78Z" />
+    </svg>
+  )
+}
+
 type Page = 'accueil' | 'decouvrir' | 'activites' | 'messages' | 'profil' | 'reglages'
 type CreationType = 'story' | 'publication'
 type AuthMode = 'connexion' | 'inscription' | 'oubli'
@@ -494,7 +504,7 @@ function App() {
         aria-pressed={liked} onClick={() => setLikedComments(current => ({ ...current, [key]: !current[key] }))}
         style={{ flexShrink: 0, background: 'transparent', border: 'none', padding: '6px',
           color: liked ? '#ff6558' : '#a4a4ad', cursor: 'pointer', fontSize: 20 }}>
-        {liked ? '♥' : '♡'}
+        <ModernHeart filled={liked} size={19} />
       </button>
     )
   }
@@ -508,7 +518,7 @@ function App() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 22 }}>
           <button type="button" onClick={() => toggleLike(postId)} aria-label={likedPosts[postId] ? 'Retirer le like' : 'Aimer'}
             style={{ ...linkStyle, color: likedPosts[postId] ? '#ff6558' : '#f5f5f5', fontSize: 27, padding: '2px 0' }}>
-            {likedPosts[postId] ? '♥' : '♡'}
+            <ModernHeart filled={!!likedPosts[postId]} size={27} />
           </button>
           {!commentsOff && <button type="button" onClick={() => setCommentModal({ id: postId, author: authorName, caption })}
             aria-label="Voir et ajouter des commentaires"
