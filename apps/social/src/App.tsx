@@ -1162,10 +1162,7 @@ function App() {
 
       {page === 'decouvrir' && (
         <section className="placeholder-page">
-          <h2>Découvrir</h2>
-          <p style={{ color: '#a4a4ad', fontSize: 13, marginBottom: 18 }}>
-            Explore les publications des sportifs de la communauté MatchFit et quelques exemples de démonstration.
-          </p>
+          <h2 style={{ fontSize: 18, lineHeight: 1.3, marginBottom: 14 }}>Découvrir</h2>
           {postsLoading && <p>Chargement des publications...</p>}
           {postsError && <p role="alert" style={{ color: '#ff7777' }}>{postsError}</p>}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10, marginTop: 16 }}>
