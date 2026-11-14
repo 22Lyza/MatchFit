@@ -274,7 +274,7 @@ function App() {
 
         setProfile(loaded)
         setSportsText(loaded.sports.join(', '))
-        setProfileEditing(!data)
+        setProfileEditing(false)
       } catch (error) {
         if (cancelled) return
 
