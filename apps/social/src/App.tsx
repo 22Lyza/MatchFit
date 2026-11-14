@@ -2006,10 +2006,12 @@ function App() {
             <div style={{ padding: '16px 0 80px' }}>
               {(() => {
                 const currentPost = posts.find(post => post.id === selectedPost.id) || selectedPost
-                const ownPosts = posts.filter(post => post.user_id === session?.user.id)
-                const currentIndex = ownPosts.findIndex(post => post.id === currentPost.id)
+                // Même défilement pour son profil et les publications d'un autre membre.
+                // Les publications du même auteur sont affichées à partir de celle sélectionnée.
+                const authorPosts = [...posts, ...discoverDemos].filter(post => post.user_id === currentPost.user_id)
+                const currentIndex = authorPosts.findIndex(post => post.id === currentPost.id)
                 const visiblePosts = currentIndex >= 0
-                  ? [...ownPosts.slice(currentIndex), ...ownPosts.slice(0, currentIndex)]
+                  ? [...authorPosts.slice(currentIndex), ...authorPosts.slice(0, currentIndex)]
                   : [currentPost]
                 return visiblePosts.map((post, index) => (
                   <div key={post.id} style={{ marginBottom: index === visiblePosts.length - 1 ? 0 : 28 }}>
