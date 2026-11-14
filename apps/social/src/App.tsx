@@ -1461,8 +1461,25 @@ function App() {
           <h2 style={{ fontSize: 18, lineHeight: 1.3, marginBottom: 14 }}>Découvrir</h2>
           {postsLoading && <p>Chargement des publications...</p>}
           {postsError && <p role="alert" style={{ color: '#ff7777' }}>{postsError}</p>}
-          <p style={{ color: '#a4a4ad', fontSize: 13 }}>Publications des comptes publics · Fais défiler pour découvrir les sportifs.</p>
-          {posts.filter(post => post.user_id !== session.user.id && !privacyByUser[post.user_id]).map(post => renderPost(post))}
+          <p style={{ color: '#a4a4ad', fontSize: 13 }}>Explore les publications des comptes publics.</p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 3, marginTop: 16 }}>
+            {posts.filter(post => post.user_id !== session.user.id && !privacyByUser[post.user_id]).map(post => (
+              <button key={post.id} type="button" aria-label={'Ouvrir la publication : ' + (post.caption || 'Sans description')}
+                onClick={() => { setOwnPostMenuOpen(null); setSelectedPost(post) }}
+                style={{ display: 'block', width: '100%', aspectRatio: '1 / 1', padding: 0, border: 'none', background: '#24252e', overflow: 'hidden', position: 'relative', cursor: 'pointer' }}>
+                {post.media_type === 'video' ? (
+                  <>
+                    <video src={post.media_url + '#t=0.1'} muted playsInline preload="metadata"
+                      style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }} />
+                    <span aria-hidden="true" style={{ position: 'absolute', top: 6, right: 7, color: '#fff', fontSize: 18, textShadow: '0 1px 5px #000' }}>▶</span>
+                  </>
+                ) : (
+                  <img src={post.media_url} alt="" loading="lazy"
+                    style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }} />
+                )}
+              </button>
+            ))}
+          </div>
           {!postsLoading && posts.filter(post => post.user_id !== session.user.id && !privacyByUser[post.user_id]).length === 0 &&
             <p style={{ color: '#a4a4ad' }}>Aucune publication publique pour le moment.</p>}
 
