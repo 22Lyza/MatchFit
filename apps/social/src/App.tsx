@@ -39,6 +39,9 @@ const discoverDemos: SocialPost[] = [
   { id: 'discover-demo-course', user_id: 'discover-demo-course', caption: 'Alex · Course — Objectif atteint 🏅', media_url: 'https://images.unsplash.com/photo-1538805060514-97d9cc17730c?w=900&auto=format&fit=crop&q=80', media_type: 'image', created_at: '2026-11-13', hide_like_count: false, comments_disabled: false },
 ]
 
+type StoredComment = { id: string; post_id: string; user_id: string; content: string; created_at: string }
+type DisplayComment = { id: string; name: string; text: string; demo: boolean }
+
 type PostAuthor = {
   first_name: string
   username: string | null
@@ -154,6 +157,11 @@ function App() {
   const [settingsSection, setSettingsSection] = useState<'accueil' | 'archives' | 'confidentialite' | 'securite' | 'conditions' | 'donnees'>('accueil')
   const [likedPosts, setLikedPosts] = useState<Record<string, boolean>>({})
   const [likedComments, setLikedComments] = useState<Record<string, boolean>>({})
+  const [postLikeCounts, setPostLikeCounts] = useState<Record<string, number>>({})
+  const [commentLikeCounts, setCommentLikeCounts] = useState<Record<string, number>>({})
+  const [storedComments, setStoredComments] = useState<Record<string, StoredComment[]>>({})
+  const [commentAuthors, setCommentAuthors] = useState<Record<string, string>>({})
+  const [interactionBusy, setInteractionBusy] = useState<Record<string, boolean>>({})
   const [postMenu, setPostMenu] = useState<string | null>(null)
   const [reportPost, setReportPost] = useState<{ id: string; author: string; demo: boolean } | null>(null)
   const [reportReason, setReportReason] = useState('Spam')
@@ -320,6 +328,7 @@ function App() {
       if (error) throw error
       const nextPosts = (data ?? []) as SocialPost[]
       setPosts(nextPosts)
+      await loadInteractions(nextPosts)
 
       const userIds = [...new Set(nextPosts.map(post => post.user_id))]
       if (userIds.length) {
@@ -432,16 +441,135 @@ function App() {
     }
   }
 
-  function toggleLike(postId: string) {
-    setLikedPosts(current => ({ ...current, [postId]: !current[postId] }))
+  const isDemoPost = (postId: string) => postId.startsWith('demo-') || postId.startsWith('discover-demo-')
+
+  async function loadInteractions(currentPosts: SocialPost[]) {
+    const ids = currentPosts.map(post => post.id)
+    if (!ids.length) {
+      setPostLikeCounts({}); setStoredComments({}); setCommentLikeCounts({})
+      return
+    }
+    try {
+      const [likesResult, commentsResult] = await Promise.all([
+        supabase.from('social_post_likes').select('post_id, user_id').in('post_id', ids),
+        supabase.from('social_comments').select('id, post_id, user_id, content, created_at').in('post_id', ids).order('created_at', { ascending: true }).limit(1000)
+      ])
+      if (likesResult.error) throw likesResult.error
+      if (commentsResult.error) throw commentsResult.error
+      const likes: Record<string, number> = {}
+      const ownLikes: Record<string, boolean> = {}
+      for (const like of likesResult.data ?? []) {
+        likes[like.post_id] = (likes[like.post_id] || 0) + 1
+        if (like.user_id === session?.user.id) ownLikes[like.post_id] = true
+      }
+      setPostLikeCounts(likes)
+      setLikedPosts(current => ({ ...Object.fromEntries(Object.entries(current).filter(([id]) => isDemoPost(id))), ...ownLikes }))
+      const grouped: Record<string, StoredComment[]> = {}
+      const fetched = (commentsResult.data ?? []) as StoredComment[]
+      for (const comment of fetched) (grouped[comment.post_id] ||= []).push(comment)
+      setStoredComments(grouped)
+      const userIds = [...new Set(fetched.map(comment => comment.user_id))]
+      if (userIds.length) {
+        const { data, error } = await supabase.from('social_profiles').select('user_id, first_name, username').in('user_id', userIds)
+        if (error) throw error
+        const names: Record<string, string> = {}
+        for (const person of data ?? []) names[person.user_id] = person.first_name || person.username || 'Sportif'
+        setCommentAuthors(names)
+      }
+      const commentIds = fetched.map(comment => comment.id)
+      if (commentIds.length) {
+        const { data, error } = await supabase.from('social_comment_likes').select('comment_id, user_id').in('comment_id', commentIds)
+        if (error) throw error
+        const counts: Record<string, number> = {}
+        const mine: Record<string, boolean> = {}
+        for (const like of data ?? []) {
+          counts[like.comment_id] = (counts[like.comment_id] || 0) + 1
+          if (like.user_id === session?.user.id) mine[like.comment_id] = true
+        }
+        setCommentLikeCounts(counts)
+        setLikedComments(current => ({ ...Object.fromEntries(Object.entries(current).filter(([id]) => id.includes(':'))), ...mine }))
+      } else { setCommentLikeCounts({}) }
+    } catch (error) {
+      setInteractionMessage(error instanceof Error ? 'Interactions : ' + error.message : 'Impossible de charger les interactions.')
+    }
   }
 
-  function submitComment(postId: string) {
-    const value = (commentDrafts[postId] || '').trim()
-    if (!value) return
-    setComments(current => ({ ...current, [postId]: [...(current[postId] || []), value] }))
-    setCommentDrafts(current => ({ ...current, [postId]: '' }))
+  async function toggleLike(postId: string) {
+    if (isDemoPost(postId)) {
+      setLikedPosts(current => ({ ...current, [postId]: !current[postId] }))
+      return
+    }
+    const userId = session?.user.id
+    if (!userId || interactionBusy['post:' + postId]) return
+    const wasLiked = !!likedPosts[postId]
+    setInteractionBusy(current => ({ ...current, ['post:' + postId]: true }))
+    setLikedPosts(current => ({ ...current, [postId]: !wasLiked }))
+    setPostLikeCounts(current => ({ ...current, [postId]: Math.max(0, (current[postId] || 0) + (wasLiked ? -1 : 1)) }))
+    const result = wasLiked
+      ? await supabase.from('social_post_likes').delete().eq('post_id', postId).eq('user_id', userId)
+      : await supabase.from('social_post_likes').insert({ post_id: postId, user_id: userId })
+    if (result.error) {
+      setLikedPosts(current => ({ ...current, [postId]: wasLiked }))
+      setPostLikeCounts(current => ({ ...current, [postId]: Math.max(0, (current[postId] || 0) + (wasLiked ? 1 : -1)) }))
+      setInteractionMessage('Like impossible : ' + result.error.message)
+    }
+    setInteractionBusy(current => ({ ...current, ['post:' + postId]: false }))
+  }
 
+  async function submitComment(postId: string) {
+    const value = (commentDrafts[postId] || '').trim()
+    if (!value || value.length > 1000 || interactionBusy['comment:' + postId]) return
+    if (isDemoPost(postId)) {
+      setComments(current => ({ ...current, [postId]: [...(current[postId] || []), value] }))
+      setCommentDrafts(current => ({ ...current, [postId]: '' }))
+      return
+    }
+    const userId = session?.user.id
+    if (!userId) return
+    setInteractionBusy(current => ({ ...current, ['comment:' + postId]: true }))
+    const { data, error } = await supabase.from('social_comments')
+      .insert({ post_id: postId, user_id: userId, content: value })
+      .select('id, post_id, user_id, content, created_at').single()
+    if (error) setInteractionMessage('Commentaire impossible : ' + error.message)
+    else if (data) {
+      setStoredComments(current => ({ ...current, [postId]: [...(current[postId] || []), data as StoredComment] }))
+      setCommentAuthors(current => ({ ...current, [userId]: profile?.first_name || profile?.username || 'Moi' }))
+      setCommentDrafts(current => ({ ...current, [postId]: '' }))
+    }
+    setInteractionBusy(current => ({ ...current, ['comment:' + postId]: false }))
+  }
+
+  function getDisplayComments(postId: string): DisplayComment[] {
+    if (isDemoPost(postId)) {
+      return [...(demoComments[postId] || []), ...(comments[postId] || []).map(text => ({ name: 'Moi', text }))]
+        .map((comment, index) => ({ id: `${postId}:${index}`, name: comment.name, text: comment.text, demo: true }))
+    }
+    return (storedComments[postId] || []).map(comment => ({
+      id: comment.id, name: commentAuthors[comment.user_id] || (comment.user_id === session?.user.id ? 'Moi' : 'Sportif'),
+      text: comment.content, demo: false
+    }))
+  }
+
+  async function toggleCommentLike(commentId: string, demo: boolean) {
+    if (demo) {
+      setLikedComments(current => ({ ...current, [commentId]: !current[commentId] }))
+      return
+    }
+    const userId = session?.user.id
+    if (!userId || interactionBusy['heart:' + commentId]) return
+    const wasLiked = !!likedComments[commentId]
+    setInteractionBusy(current => ({ ...current, ['heart:' + commentId]: true }))
+    setLikedComments(current => ({ ...current, [commentId]: !wasLiked }))
+    setCommentLikeCounts(current => ({ ...current, [commentId]: Math.max(0, (current[commentId] || 0) + (wasLiked ? -1 : 1)) }))
+    const result = wasLiked
+      ? await supabase.from('social_comment_likes').delete().eq('comment_id', commentId).eq('user_id', userId)
+      : await supabase.from('social_comment_likes').insert({ comment_id: commentId, user_id: userId })
+    if (result.error) {
+      setLikedComments(current => ({ ...current, [commentId]: wasLiked }))
+      setCommentLikeCounts(current => ({ ...current, [commentId]: Math.max(0, (current[commentId] || 0) + (wasLiked ? 1 : -1)) }))
+      setInteractionMessage('Like du commentaire impossible : ' + result.error.message)
+    }
+    setInteractionBusy(current => ({ ...current, ['heart:' + commentId]: false }))
   }
 
   async function sharePost(postId: string, caption: string, mediaUrl?: string) {
@@ -506,27 +634,30 @@ function App() {
     )
   }
 
-  function commentHeart(postId: string, index: number) {
-    const key = `${postId}:${index}`
-    const liked = !!likedComments[key]
+  function commentHeart(comment: DisplayComment) {
+    const liked = !!likedComments[comment.id]
     return (
-      <button type="button" aria-label={liked ? 'Ne plus aimer ce commentaire' : 'Aimer ce commentaire'}
-        aria-pressed={liked} onClick={() => setLikedComments(current => ({ ...current, [key]: !current[key] }))}
-        style={{ flexShrink: 0, background: 'transparent', border: 'none', padding: '6px',
-          color: liked ? '#ff6558' : '#a4a4ad', cursor: 'pointer', fontSize: 20 }}>
-        <ModernHeart filled={liked} size={19} />
-      </button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+        <button type="button" aria-label={liked ? 'Ne plus aimer ce commentaire' : 'Aimer ce commentaire'}
+          aria-pressed={liked} disabled={!!interactionBusy['heart:' + comment.id]}
+          onClick={() => void toggleCommentLike(comment.id, comment.demo)}
+          style={{ background: 'transparent', border: 'none', padding: '6px',
+            color: liked ? '#ff6558' : '#a4a4ad', cursor: 'pointer' }}>
+          <ModernHeart filled={liked} size={19} />
+        </button>
+        {!comment.demo && (commentLikeCounts[comment.id] || 0) > 0 &&
+          <span style={{ color: '#a4a4ad', fontSize: 11 }}>{commentLikeCounts[comment.id]}</span>}
+      </div>
     )
   }
 
   function postInteractions(postId: string, caption: string, authorName: string, mediaUrl?: string, hideLikeCount = false, commentsOff = false) {
-    const existing = demoComments[postId] || []
-    const added = comments[postId] || []
-    const total = existing.length + added.length
+    const displayComments = getDisplayComments(postId)
+    const total = displayComments.length
     return (
       <div style={{ padding: '12px 16px 14px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 22 }}>
-          <button type="button" onClick={() => toggleLike(postId)} aria-label={likedPosts[postId] ? 'Retirer le like' : 'Aimer'}
+          <button type="button" onClick={() => void toggleLike(postId)} disabled={!!interactionBusy['post:' + postId]} aria-label={likedPosts[postId] ? 'Retirer le like' : 'Aimer'}
             style={{ ...linkStyle, color: likedPosts[postId] ? '#ff6558' : '#f5f5f5', fontSize: 27, padding: '2px 0' }}>
             <ModernHeart filled={!!likedPosts[postId]} size={27} />
           </button>
@@ -540,7 +671,7 @@ function App() {
           <button type="button" onClick={() => void sharePost(postId, caption, mediaUrl)} aria-label="Partager"
             style={{ ...linkStyle, color: '#f5f5f5', fontSize: 25, padding: '2px 0' }}>↗</button>
         </div>
-        {!hideLikeCount && <p style={{ margin: '5px 0 8px', fontSize: 13, fontWeight: 700 }}>{likedPosts[postId] ? '1 J’aime' : '0 J’aime'}</p>}
+        {!hideLikeCount && <p style={{ margin: '5px 0 8px', fontSize: 13, fontWeight: 700 }}>{isDemoPost(postId) ? (likedPosts[postId] ? 1 : 0) : (postLikeCounts[postId] || 0)} J’aime</p>}
         {caption.trim() && (
           <p style={{ margin: '7px 0 8px', fontSize: 13, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
             <strong>{authorName}</strong> {caption}
@@ -552,10 +683,10 @@ function App() {
               style={{ ...linkStyle, padding: '3px 0 7px', color: '#a4a4ad', fontSize: 13 }}>
               Voir les {total} commentaires
             </button>
-            {[...existing, ...added.map(text => ({ name: 'Moi', text }))].slice(0, 3).map((comment, index) => (
-              <div key={index} style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '5px 0', fontSize: 13, color: '#e6e6e9' }}>
+            {displayComments.slice(0, 3).map(comment => (
+              <div key={comment.id} style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '5px 0', fontSize: 13, color: '#e6e6e9' }}>
                 <span style={{ flex: 1 }}><strong>{comment.name}</strong> {comment.text}</span>
-                {commentHeart(postId, index)}
+                {commentHeart(comment)}
               </div>
             ))}
           </>
@@ -1713,16 +1844,16 @@ function App() {
                 <strong>{commentModal.author}</strong> {commentModal.caption}
               </p>
             )}
-            {[...(demoComments[commentModal.id] || []), ...(comments[commentModal.id] || []).map(text => ({ name: 'Moi', text }))].map((comment, index) => (
-              <div key={index} style={{ display: 'flex', gap: 12, marginBottom: 22, alignItems: 'flex-start' }}>
+            {getDisplayComments(commentModal.id).map(comment => (
+              <div key={comment.id} style={{ display: 'flex', gap: 12, marginBottom: 22, alignItems: 'flex-start' }}>
                 <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#30313b', color: '#ff8a4b', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontWeight: 700 }}>
                   {comment.name.charAt(0).toUpperCase()}
                 </div>
                 <p style={{ margin: '7px 0 0', fontSize: 14, lineHeight: 1.5, flex: 1 }}><strong>{comment.name}</strong> {comment.text}</p>
-                {commentHeart(commentModal.id, index)}
+                {commentHeart(comment)}
               </div>
             ))}
-            {(demoComments[commentModal.id] || []).length === 0 && (comments[commentModal.id] || []).length === 0 && (
+            {getDisplayComments(commentModal.id).length === 0 && (
               <p style={{ textAlign: 'center', color: '#a4a4ad', marginTop: 40 }}>Aucun commentaire pour le moment.</p>
             )}
           </div>
@@ -1732,7 +1863,7 @@ function App() {
               value={commentDrafts[commentModal.id] || ''}
               onChange={event => setCommentDrafts(current => ({ ...current, [commentModal.id]: event.target.value }))}
               style={{ ...fieldStyle, margin: 0, minWidth: 0, flex: 1, padding: 12 }} />
-            <button type="submit" disabled={!(commentDrafts[commentModal.id] || '').trim()}
+            <button type="submit" disabled={!(commentDrafts[commentModal.id] || '').trim() || !!interactionBusy['comment:' + commentModal.id]}
               style={{ ...primaryStyle, width: 'auto', padding: '10px 16px', opacity: (commentDrafts[commentModal.id] || '').trim() ? 1 : 0.5 }}>Publier</button>
           </form>
           </div>
