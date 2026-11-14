@@ -1301,7 +1301,7 @@ function App() {
               <p>Aucune publication des autres sportifs pour le moment.</p>
             </div>
           )}
-          {posts.filter(post => post.user_id !== session.user.id).map(renderPost)}
+          {posts.filter(post => post.user_id !== session.user.id).map(post => renderPost(post))}
 
           {/* Publications fictives de démonstration : jamais enregistrées dans Supabase. */}
           <p style={{ margin: '24px 0 10px', fontSize: 12, color: '#a4a4ad' }}>
