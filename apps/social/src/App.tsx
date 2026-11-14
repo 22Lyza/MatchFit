@@ -201,6 +201,13 @@ function App() {
 
   const [selectedPost, setSelectedPost] = useState<SocialPost | null>(null)
   const [ownPostMenuOpen, setOwnPostMenuOpen] = useState<string | null>(null)
+  const [viewedProfile, setViewedProfile] = useState<SocialProfile | null>(null)
+  const [viewedProfileLoading, setViewedProfileLoading] = useState(false)
+  const [viewedProfileError, setViewedProfileError] = useState('')
+  const [following, setFollowing] = useState(false)
+  const [followBusy, setFollowBusy] = useState(false)
+  const [followerCount, setFollowerCount] = useState(0)
+  const [followingCount, setFollowingCount] = useState(0)
 
   useEffect(() => {
     let active = true
@@ -723,20 +730,77 @@ function App() {
     )
   }
 
+  async function openMemberProfile(userId: string) {
+    if (userId === session?.user.id) {
+      setViewedProfile(null)
+      setSelectedPost(null)
+      setPage('profil')
+      return
+    }
+    if (userId.startsWith('demo-') || userId.startsWith('discover-demo-')) {
+      setInteractionMessage('Ce profil est une démonstration, sans compte réel.')
+      return
+    }
+    setSelectedPost(null)
+    setViewedProfileLoading(true)
+    setViewedProfileError('')
+    setViewedProfile(null)
+    try {
+      const [person, followers, follows, mine] = await Promise.all([
+        supabase.from('social_profiles').select('user_id, first_name, username, city, sports, bio, avatar_url').eq('user_id', userId).maybeSingle(),
+        supabase.from('social_follows').select('follower_id', { count: 'exact', head: true }).eq('following_id', userId),
+        supabase.from('social_follows').select('following_id', { count: 'exact', head: true }).eq('follower_id', userId),
+        supabase.from('social_follows').select('follower_id').eq('follower_id', session!.user.id).eq('following_id', userId).maybeSingle()
+      ])
+      if (person.error) throw person.error
+      if (!person.data) throw new Error('Profil introuvable.')
+      if (followers.error) throw followers.error
+      if (follows.error) throw follows.error
+      if (mine.error) throw mine.error
+      setViewedProfile(person.data as SocialProfile)
+      setFollowerCount(followers.count ?? 0)
+      setFollowingCount(follows.count ?? 0)
+      setFollowing(!!mine.data)
+    } catch (error) {
+      setViewedProfileError(error instanceof Error ? error.message : 'Impossible de charger ce profil.')
+    } finally {
+      setViewedProfileLoading(false)
+    }
+  }
+
+  async function toggleFollow() {
+    if (!session || !viewedProfile || followBusy) return
+    setFollowBusy(true)
+    setViewedProfileError('')
+    const wasFollowing = following
+    const result = wasFollowing
+      ? await supabase.from('social_follows').delete().eq('follower_id', session.user.id).eq('following_id', viewedProfile.user_id)
+      : await supabase.from('social_follows').insert({ follower_id: session.user.id, following_id: viewedProfile.user_id })
+    if (result.error) setViewedProfileError(result.error.message)
+    else {
+      setFollowing(!wasFollowing)
+      setFollowerCount(current => Math.max(0, current + (wasFollowing ? -1 : 1)))
+    }
+    setFollowBusy(false)
+  }
+
   function renderPost(post: SocialPost, inPreview = false) {
     const author = authors[post.user_id]
     const authorName = author?.username ? '@' + author.username.replace(/^@/, '') : post.user_id === session?.user.id && profile?.username ? '@' + profile.username.replace(/^@/, '') : author?.first_name || 'Sportif MatchFit'
-    const avatarUrl = author?.avatar_url || (post.user_id === session?.user.id ? profile?.avatar_url : null)
+    const avatarUrl = (post.user_id === session?.user.id ? profile?.avatar_url : null) || author?.avatar_url
     return (
       <article className="post" key={post.id} style={{ marginBottom: inPreview ? 0 : 28 }}>
         <div className="post-header" style={{ paddingLeft: 16, paddingRight: 16 }}>
-          <div className="avatar" style={{ overflow: 'hidden' }}>
+          <button type="button" className="avatar" aria-label={'Voir le profil de ' + authorName}
+            onClick={() => void openMemberProfile(post.user_id)}
+            style={{ overflow: 'hidden', border: 'none', padding: 0, cursor: 'pointer', flexShrink: 0 }}>
             {avatarUrl ? (
               <img src={avatarUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            ) : authorName[0].toUpperCase()}
-          </div>
+            ) : (author?.first_name?.[0] || authorName.replace('@', '')[0] || 'M').toUpperCase()}
+          </button>
           <div>
-            <strong>{authorName}</strong>
+            <button type="button" onClick={() => void openMemberProfile(post.user_id)}
+              style={{ background: 'none', border: 'none', padding: 0, color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>{authorName}</button>
             <p>{new Date(post.created_at).toLocaleDateString('fr-CH', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
           </div>
           {post.user_id !== session?.user.id && !isDemoPost(post.id) && postOptions(post.id, authorName, false)}
@@ -875,6 +939,7 @@ function App() {
       }
 
       setProfile(updated)
+      setAuthors(current => ({ ...current, [updated.user_id]: { first_name: updated.first_name, username: updated.username, avatar_url: updated.avatar_url } }))
       setSportsText(updated.sports.join(', '))
       setAvatarFile(null)
       setProfileEditing(false)
@@ -1989,6 +2054,57 @@ function App() {
           )}
           {interactionMessage && <p role="status" style={{ color: '#8ee0aa', fontSize: 13 }}>{interactionMessage}</p>}
         </main>
+      )}
+
+      {(viewedProfile || viewedProfileLoading || viewedProfileError) && (
+        <div role="dialog" aria-modal="true" aria-label="Profil du membre"
+          style={{ position: 'fixed', inset: 0, zIndex: 1100, background: '#0b0c10', overflowY: 'auto' }}>
+          <div style={{ maxWidth: 620, margin: '0 auto', padding: '16px 16px 90px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, borderBottom: '1px solid #30313b', paddingBottom: 16 }}>
+              <button type="button" aria-label="Fermer le profil" onClick={() => { setViewedProfile(null); setViewedProfileError(''); setViewedProfileLoading(false) }}
+                style={{ ...linkStyle, color: '#fff', fontSize: 27 }}>←</button>
+              <strong style={{ fontSize: 18 }}>{viewedProfile?.username ? '@' + viewedProfile.username.replace(/^@/, '') : 'Profil sportif'}</strong>
+            </div>
+            {viewedProfileLoading && <p>Chargement du profil...</p>}
+            {viewedProfileError && <p role="alert" style={{ color: '#ff7777' }}>{viewedProfileError}</p>}
+            {viewedProfile && <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginTop: 25 }}>
+                <div style={{ width: 86, height: 86, borderRadius: '50%', overflow: 'hidden', background: '#24252e', flexShrink: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30 }}>
+                  {viewedProfile.avatar_url ? <img src={viewedProfile.avatar_url} alt="Photo de profil" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    : (viewedProfile.first_name?.[0] || 'M').toUpperCase()}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <strong>{viewedProfile.first_name || 'Sportif MatchFit'}</strong>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 12, fontSize: 12, textAlign: 'center' }}>
+                    <span><strong>{posts.filter(post => post.user_id === viewedProfile.user_id).length}</strong><br/>Publications</span>
+                    <span><strong>{followerCount}</strong><br/>Abonnés</span>
+                    <span><strong>{followingCount}</strong><br/>Abonnements</span>
+                  </div>
+                </div>
+              </div>
+              {viewedProfile.city && <p style={{ color: '#a4a4ad', fontSize: 13 }}>📍 {viewedProfile.city}</p>}
+              {viewedProfile.bio && <p style={{ whiteSpace: 'pre-wrap', fontSize: 14 }}>{viewedProfile.bio}</p>}
+              {!!viewedProfile.sports?.length && <p style={{ color: '#ff8a4b', fontSize: 13 }}>{viewedProfile.sports.join(' · ')}</p>}
+              <button type="button" disabled={followBusy} onClick={() => void toggleFollow()}
+                style={{ ...primaryStyle, marginTop: 12, background: following ? '#30313b' : primaryStyle.background, opacity: followBusy ? 0.6 : 1 }}>
+                {followBusy ? 'Patiente...' : following ? '✓ Abonné(e) · Se désabonner' : "S'abonner"}
+              </button>
+              <h3 style={{ marginTop: 30, fontSize: 16 }}>Publications</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 5 }}>
+                {posts.filter(post => post.user_id === viewedProfile.user_id).map(post => (
+                  <button key={post.id} type="button" aria-label="Ouvrir la publication"
+                    onClick={() => { setViewedProfile(null); setSelectedPost(post) }}
+                    style={{ aspectRatio: '1', padding: 0, border: 'none', borderRadius: 5, overflow: 'hidden', background: '#24252e', cursor: 'pointer' }}>
+                    {post.media_type === 'video'
+                      ? <video src={post.media_url} muted playsInline preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      : <img src={post.media_url} alt={post.caption || 'Publication'} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+                  </button>
+                ))}
+              </div>
+            </>}
+          </div>
+        </div>
       )}
 
       {selectedPost && (
