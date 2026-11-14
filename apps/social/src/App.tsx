@@ -200,6 +200,7 @@ function App() {
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
 
   const [selectedPost, setSelectedPost] = useState<SocialPost | null>(null)
+  const [ownPostMenuOpen, setOwnPostMenuOpen] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -722,22 +723,46 @@ function App() {
     )
   }
 
-  function renderPost(post: SocialPost) {
+  function renderPost(post: SocialPost, inPreview = false) {
     const author = authors[post.user_id]
-    const authorName = author?.first_name || author?.username || 'Sportif MatchFit'
+    const authorName = author?.username ? '@' + author.username.replace(/^@/, '') : post.user_id === session?.user.id && profile?.username ? '@' + profile.username.replace(/^@/, '') : author?.first_name || 'Sportif MatchFit'
+    const avatarUrl = author?.avatar_url || (post.user_id === session?.user.id ? profile?.avatar_url : null)
     return (
-      <article className="post" key={post.id} style={{ marginBottom: 28 }}>
+      <article className="post" key={post.id} style={{ marginBottom: inPreview ? 0 : 28 }}>
         <div className="post-header" style={{ paddingLeft: 16, paddingRight: 16 }}>
           <div className="avatar" style={{ overflow: 'hidden' }}>
-            {author?.avatar_url ? (
-              <img src={author.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            {avatarUrl ? (
+              <img src={avatarUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
             ) : authorName[0].toUpperCase()}
           </div>
           <div>
             <strong>{authorName}</strong>
             <p>{new Date(post.created_at).toLocaleDateString('fr-CH', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
           </div>
-          {post.user_id !== session?.user.id && postOptions(post.id, authorName, false)}
+          {post.user_id !== session?.user.id && !isDemoPost(post.id) && postOptions(post.id, authorName, false)}
+          {inPreview && post.user_id === session?.user.id && (
+            <div style={{ marginLeft: 'auto', position: 'relative' }}>
+              <button type="button" aria-label="Gérer ma publication" aria-expanded={ownPostMenuOpen}
+                onClick={() => setOwnPostMenuOpen(current => !current)}
+                style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: 25, cursor: 'pointer', padding: '8px 4px' }}>•••</button>
+              {ownPostMenuOpen && <div style={{ position: 'absolute', top: '100%', right: 0, zIndex: 30, width: 275,
+                maxWidth: 'calc(100vw - 70px)', background: '#24252e', border: '1px solid #444550', borderRadius: 12,
+                padding: 15, boxShadow: '0 8px 25px rgba(0,0,0,.5)' }}>
+                <strong style={{ display: 'block', marginBottom: 12, fontSize: 14 }}>Confidentialité de la publication</strong>
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14, fontSize: 13 }}>
+                  Masquer le nombre de J’aime
+                  <input type="checkbox" checked={post.hide_like_count} disabled={postSettingsBusy}
+                    onChange={event => void updatePostPrivacy(post, { hide_like_count: event.target.checked })} />
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, fontSize: 13 }}>
+                  Désactiver les commentaires
+                  <input type="checkbox" checked={post.comments_disabled} disabled={postSettingsBusy}
+                    onChange={event => void updatePostPrivacy(post, { comments_disabled: event.target.checked })} />
+                </label>
+                {postSettingsError && <p role="alert" style={{ color: '#ff7777', fontSize: 12 }}>{postSettingsError}</p>}
+              </div>}
+            </div>
+          )}
         </div>
         <div style={{ margin: '0 16px', background: '#101116', borderRadius: 12, overflow: 'hidden' }}>
           {post.media_type === 'video' ? (
@@ -1327,7 +1352,7 @@ function App() {
             {[...posts, ...discoverDemos].map(post => (
               <button type="button" key={post.id}
                 aria-label={`Ouvrir la publication de ${authors[post.user_id]?.first_name || 'Sportif MatchFit'}`}
-                onClick={() => setSelectedPost(post)}
+                onClick={() => { setOwnPostMenuOpen(false); setSelectedPost(post) }}
                 style={{ aspectRatio: '1', overflow: 'hidden', borderRadius: 12,
                   background: '#24252e', position: 'relative', border: '1px solid #30313b',
                   padding: 0, cursor: 'pointer', display: 'block', width: '100%' }}>
@@ -1729,7 +1754,7 @@ function App() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 5, marginTop: 15 }}>
                   {posts.filter(post => post.user_id === session.user.id).map(post => (
                     <button type="button" key={post.id} aria-label="Ouvrir ma publication"
-                      onClick={() => setSelectedPost(post)}
+                      onClick={() => { setOwnPostMenuOpen(false); setSelectedPost(post) }}
                       style={{ aspectRatio: '1', overflow: 'hidden', borderRadius: 5, background: '#24252e',
                         position: 'relative', border: 'none', padding: 0, cursor: 'pointer' }}>
                       {post.media_type === 'video' ? (
@@ -1967,41 +1992,15 @@ function App() {
       )}
 
       {selectedPost && (
-        <div className="creation-overlay" onClick={() => setSelectedPost(null)}>
-          <div className="creation-panel" onClick={event => event.stopPropagation()}>
+        <div className="creation-overlay" onClick={() => { setSelectedPost(null); setOwnPostMenuOpen(false) }}>
+          <div className="creation-panel" role="dialog" aria-modal="true" aria-label="Publication"
+            onClick={event => event.stopPropagation()} style={{ maxHeight: '90dvh', overflowY: 'auto' }}>
             <div className="creation-header">
-              <h2>{selectedPost.id.startsWith('discover-demo-') ? 'Publication · Démo' : selectedPost.user_id === session?.user.id ? 'Ma publication' : 'Publication'}</h2>
-              <button className="creation-close" onClick={() => setSelectedPost(null)} aria-label="Fermer">✕</button>
+              <h2 style={{ fontSize: 17 }}>Publication</h2>
+              <button className="creation-close" onClick={() => { setSelectedPost(null); setOwnPostMenuOpen(false) }} aria-label="Fermer">✕</button>
             </div>
-            <div style={{ padding: 14 }}>
-              {selectedPost.media_type === 'video' ? (
-                <video src={selectedPost.media_url} controls playsInline style={{ width: '100%', maxHeight: '65vh', objectFit: 'contain' }} />
-              ) : (
-                <img src={selectedPost.media_url} alt={selectedPost.caption || 'Ma publication'}
-                  style={{ width: '100%', maxHeight: '65vh', objectFit: 'contain' }} />
-              )}
-              <p style={{ whiteSpace: 'pre-wrap' }}>{selectedPost.caption}</p>
-              {selectedPost.user_id === session?.user.id ? (
-              <div style={{ borderTop: '1px solid #30313b', paddingTop: 16, marginTop: 18 }}>
-                <h3 style={{ fontSize: 15, margin: '0 0 12px' }}>Confidentialité de cette publication</h3>
-                <label style={{ display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'center', padding: '10px 0', cursor: 'pointer' }}>
-                  <span>Masquer le nombre de J’aime</span>
-                  <input type="checkbox" checked={selectedPost.hide_like_count} disabled={postSettingsBusy}
-                    onChange={event => void updatePostPrivacy(selectedPost, { hide_like_count: event.target.checked })} />
-                </label>
-                <label style={{ display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'center', padding: '10px 0', cursor: 'pointer' }}>
-                  <span>Désactiver les commentaires</span>
-                  <input type="checkbox" checked={selectedPost.comments_disabled} disabled={postSettingsBusy}
-                    onChange={event => void updatePostPrivacy(selectedPost, { comments_disabled: event.target.checked })} />
-                </label>
-                {postSettingsError && <p role="alert" style={{ color: '#ff7777', fontSize: 13 }}>{postSettingsError}</p>}
-              </div>
-              ) : selectedPost.id.startsWith('discover-demo-') ? (
-                <p style={{ color: '#a4a4ad', fontSize: 12 }}>Exemple fictif : cette publication n’est pas enregistrée dans Supabase.</p>
-              ) : postInteractions(selectedPost.id, selectedPost.caption,
-                authors[selectedPost.user_id]?.first_name || authors[selectedPost.user_id]?.username || 'Sportif MatchFit',
-                selectedPost.media_url, selectedPost.hide_like_count, selectedPost.comments_disabled)}
-            </div>
+            {renderPost(posts.find(post => post.id === selectedPost.id) || selectedPost, true)}
+            {isDemoPost(selectedPost.id) && <p style={{ padding: '0 16px 16px', color: '#a4a4ad', fontSize: 12 }}>Exemple fictif : non enregistré dans Supabase.</p>}
           </div>
         </div>
       )}
