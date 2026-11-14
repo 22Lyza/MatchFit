@@ -57,6 +57,7 @@ type SocialProfile = {
   sports: string[]
   bio: string
   avatar_url: string | null
+  is_private: boolean
 }
 
 const emptyProfile = (userId: string): SocialProfile => ({
@@ -66,7 +67,8 @@ const emptyProfile = (userId: string): SocialProfile => ({
   city: '',
   sports: [],
   bio: '',
-  avatar_url: null
+  avatar_url: null,
+  is_private: false
 })
 
 const fieldStyle: CSSProperties = {
@@ -206,6 +208,9 @@ function App() {
   const [viewedProfileLoading, setViewedProfileLoading] = useState(false)
   const [viewedProfileError, setViewedProfileError] = useState('')
   const [following, setFollowing] = useState(false)
+  const [followRequested, setFollowRequested] = useState(false)
+  const [followRequests, setFollowRequests] = useState<{ follower_id: string; username: string }[]>([])
+  const [privacyByUser, setPrivacyByUser] = useState<Record<string, boolean>>({})
   const [followBusy, setFollowBusy] = useState(false)
   const [followerCount, setFollowerCount] = useState(0)
   const [followingCount, setFollowingCount] = useState(0)
@@ -261,7 +266,7 @@ function App() {
         const { data, error } = await supabase
           .from('social_profiles')
           .select(
-            'user_id, first_name, username, city, sports, bio, avatar_url'
+            'user_id, first_name, username, city, sports, bio, avatar_url, is_private'
           )
           .eq('user_id', userId)
           .maybeSingle()
@@ -345,7 +350,7 @@ function App() {
       if (userIds.length) {
         const { data: people, error: peopleError } = await supabase
           .from('social_profiles')
-          .select('user_id, first_name, username, avatar_url')
+          .select('user_id, first_name, username, avatar_url, is_private')
           .in('user_id', userIds)
         if (peopleError) throw peopleError
         const nextAuthors: Record<string, PostAuthor> = {}
@@ -357,8 +362,10 @@ function App() {
           }
         }
         setAuthors(nextAuthors)
+        setPrivacyByUser(Object.fromEntries((people ?? []).map(person => [person.user_id, !!person.is_private])))
       } else {
         setAuthors({})
+        setPrivacyByUser({})
       }
     } catch (error) {
       setPostsError(error instanceof Error ? error.message : 'Chargement impossible.')
@@ -748,7 +755,7 @@ function App() {
     setViewedProfile(null)
     try {
       const [person, followers, follows, mine] = await Promise.all([
-        supabase.from('social_profiles').select('user_id, first_name, username, city, sports, bio, avatar_url').eq('user_id', userId).maybeSingle(),
+        supabase.from('social_profiles').select('user_id, first_name, username, city, sports, bio, avatar_url, is_private').eq('user_id', userId).maybeSingle(),
         supabase.from('social_follows').select('follower_id', { count: 'exact', head: true }).eq('following_id', userId),
         supabase.from('social_follows').select('following_id', { count: 'exact', head: true }).eq('follower_id', userId),
         supabase.from('social_follows').select('follower_id').eq('follower_id', session!.user.id).eq('following_id', userId).maybeSingle()
@@ -762,6 +769,9 @@ function App() {
       setFollowerCount(followers.count ?? 0)
       setFollowingCount(follows.count ?? 0)
       setFollowing(!!mine.data)
+      const { data: pending, error: pendingError } = await supabase.from('social_follow_requests').select('follower_id').eq('follower_id', session!.user.id).eq('following_id', userId).maybeSingle()
+      if (pendingError) throw pendingError
+      setFollowRequested(!!pending)
     } catch (error) {
       setViewedProfileError(error instanceof Error ? error.message : 'Impossible de charger ce profil.')
     } finally {
@@ -773,16 +783,52 @@ function App() {
     if (!session || !viewedProfile || followBusy) return
     setFollowBusy(true)
     setViewedProfileError('')
-    const wasFollowing = following
-    const result = wasFollowing
-      ? await supabase.from('social_follows').delete().eq('follower_id', session.user.id).eq('following_id', viewedProfile.user_id)
-      : await supabase.from('social_follows').insert({ follower_id: session.user.id, following_id: viewedProfile.user_id })
-    if (result.error) setViewedProfileError(result.error.message)
-    else {
-      setFollowing(!wasFollowing)
-      setFollowerCount(current => Math.max(0, current + (wasFollowing ? -1 : 1)))
-    }
-    setFollowBusy(false)
+    try {
+      if (following) {
+        const { error } = await supabase.from('social_follows').delete().eq('follower_id', session.user.id).eq('following_id', viewedProfile.user_id)
+        if (error) throw error
+        setFollowing(false)
+        setFollowerCount(current => Math.max(0, current - 1))
+      } else if (followRequested) {
+        const { error } = await supabase.from('social_follow_requests').delete().eq('follower_id', session.user.id).eq('following_id', viewedProfile.user_id)
+        if (error) throw error
+        setFollowRequested(false)
+      } else if (viewedProfile.is_private) {
+        const { error } = await supabase.from('social_follow_requests').insert({ follower_id: session.user.id, following_id: viewedProfile.user_id })
+        if (error) throw error
+        setFollowRequested(true)
+      } else {
+        const { error } = await supabase.from('social_follows').insert({ follower_id: session.user.id, following_id: viewedProfile.user_id })
+        if (error) throw error
+        setFollowing(true)
+        setFollowerCount(current => current + 1)
+      }
+    } catch (error) {
+      setViewedProfileError(error instanceof Error ? error.message : 'Abonnement impossible.')
+    } finally { setFollowBusy(false) }
+  }
+
+  async function loadFollowRequests() {
+    if (!session) return
+    const { data, error } = await supabase.from('social_follow_requests').select('follower_id').eq('following_id', session.user.id)
+    if (error) { setProfileError(error.message); return }
+    const ids = (data ?? []).map(row => row.follower_id)
+    if (!ids.length) { setFollowRequests([]); return }
+    const { data: people } = await supabase.from('social_profiles').select('user_id, username, first_name').in('user_id', ids)
+    setFollowRequests(ids.map(id => ({ follower_id: id, username: people?.find(p => p.user_id === id)?.username || people?.find(p => p.user_id === id)?.first_name || 'Sportif' })))
+  }
+
+  async function respondToFollowRequest(followerId: string, accept: boolean) {
+    if (!session) return
+    try {
+      if (accept) {
+        const { error } = await supabase.from('social_follows').insert({ follower_id: followerId, following_id: session.user.id })
+        if (error) throw error
+      }
+      const { error } = await supabase.from('social_follow_requests').delete().eq('follower_id', followerId).eq('following_id', session.user.id)
+      if (error) throw error
+      await loadFollowRequests()
+    } catch (error) { setProfileError(error instanceof Error ? error.message : 'Action impossible.') }
   }
 
   function renderPost(post: SocialPost, inPreview = false) {
@@ -940,6 +986,7 @@ function App() {
       }
 
       setProfile(updated)
+      setPrivacyByUser(current => ({ ...current, [updated.user_id]: updated.is_private }))
       setAuthors(current => ({ ...current, [updated.user_id]: { first_name: updated.first_name, username: updated.username, avatar_url: updated.avatar_url } }))
       setSportsText(updated.sports.join(', '))
       setAvatarFile(null)
@@ -1362,12 +1409,12 @@ function App() {
 
           {postsLoading && <p>Chargement des publications...</p>}
           {postsError && <p role="alert" style={{ color: '#ff7777' }}>{postsError}</p>}
-          {!postsLoading && posts.filter(post => post.user_id !== session.user.id).length === 0 && !postsError && (
+          {!postsLoading && posts.filter(post => post.user_id !== session.user.id && !privacyByUser[post.user_id]).length === 0 && !postsError && (
             <div style={cardStyle}>
               <p>Aucune publication des autres sportifs pour le moment.</p>
             </div>
           )}
-          {posts.filter(post => post.user_id !== session.user.id).map(post => renderPost(post))}
+          {posts.filter(post => post.user_id !== session.user.id && !privacyByUser[post.user_id]).map(post => renderPost(post))}
 
           {/* Publications fictives de démonstration : jamais enregistrées dans Supabase. */}
           <p style={{ margin: '24px 0 10px', fontSize: 12, color: '#a4a4ad' }}>
@@ -1414,32 +1461,11 @@ function App() {
           <h2 style={{ fontSize: 18, lineHeight: 1.3, marginBottom: 14 }}>Découvrir</h2>
           {postsLoading && <p>Chargement des publications...</p>}
           {postsError && <p role="alert" style={{ color: '#ff7777' }}>{postsError}</p>}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10, marginTop: 16 }}>
-            {[...posts, ...discoverDemos].map(post => (
-              <button type="button" key={post.id}
-                aria-label={`Ouvrir la publication de ${authors[post.user_id]?.first_name || 'Sportif MatchFit'}`}
-                onClick={() => { setOwnPostMenuOpen(null); setSelectedPost(post) }}
-                style={{ aspectRatio: '1', overflow: 'hidden', borderRadius: 12,
-                  background: '#24252e', position: 'relative', border: '1px solid #30313b',
-                  padding: 0, cursor: 'pointer', display: 'block', width: '100%' }}>
-                {post.media_type === 'video' ? (
-                  <>
-                    <video src={post.media_url} muted playsInline preload="metadata"
-                      style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }} />
-                    <span style={{ position: 'absolute', top: 8, right: 9, color: '#fff',
-                      textShadow: '0 1px 5px #000', fontSize: 16 }}>▶</span>
-                  </>
-                ) : (
-                  <img src={post.media_url} alt={post.caption || 'Publication sportive'} loading="lazy"
-                    style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }} />
-                )}
-                {post.id.startsWith('discover-demo-') && (
-                  <span style={{ position: 'absolute', bottom: 5, left: 5, fontSize: 10,
-                    padding: '3px 6px', borderRadius: 5, color: '#fff', background: 'rgba(0,0,0,.68)' }}>Démo</span>
-                )}
-              </button>
-            ))}
-          </div>
+          <p style={{ color: '#a4a4ad', fontSize: 13 }}>Publications des comptes publics · Fais défiler pour découvrir les sportifs.</p>
+          {posts.filter(post => post.user_id !== session.user.id && !privacyByUser[post.user_id]).map(post => renderPost(post))}
+          {!postsLoading && posts.filter(post => post.user_id !== session.user.id && !privacyByUser[post.user_id]).length === 0 &&
+            <p style={{ color: '#a4a4ad' }}>Aucune publication publique pour le moment.</p>}
+
         </section>
       )}
 
@@ -1629,6 +1655,15 @@ function App() {
                   ))}
                 </div>
 
+              {profile.is_private && <div style={{ marginTop: 16 }}>
+                <button type="button" onClick={() => void loadFollowRequests()} style={{ ...linkStyle, paddingLeft: 0 }}>Voir les demandes d'abonnement</button>
+                {followRequests.map(request => <div key={request.follower_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0' }}>
+                  <span style={{ flex: 1 }}>@{request.username.replace(/^@/, '')}</span>
+                  <button type="button" onClick={() => void respondToFollowRequest(request.follower_id, true)}>Accepter</button>
+                  <button type="button" onClick={() => void respondToFollowRequest(request.follower_id, false)}>Refuser</button>
+                </div>)}
+              </div>}
+
               {profileEditing && (
                 <form
                   onSubmit={saveProfile}
@@ -1753,6 +1788,12 @@ function App() {
                       resize: 'vertical'
                     }}
                   />
+
+                  <label htmlFor="profile-private" style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+                    <input id="profile-private" type="checkbox" checked={profile.is_private}
+                      onChange={event => updateProfile({ is_private: event.target.checked })} />
+                    <span><strong>Compte privé</strong><br/><small style={{ color: '#a4a4ad' }}>Seuls tes abonnés acceptés voient tes publications. Découvrir affiche uniquement les comptes publics.</small></span>
+                  </label>
 
                   <button
                     type="submit"
@@ -2093,9 +2134,10 @@ function App() {
               {!!viewedProfile.sports?.length && <p style={{ color: '#ff8a4b', fontSize: 13 }}>{viewedProfile.sports.join(' · ')}</p>}
               <button type="button" disabled={followBusy} onClick={() => void toggleFollow()}
                 style={{ ...primaryStyle, marginTop: 12, background: following ? '#30313b' : primaryStyle.background, opacity: followBusy ? 0.6 : 1 }}>
-                {followBusy ? 'Patiente...' : following ? '✓ Abonné(e) · Se désabonner' : "S'abonner"}
+                {followBusy ? 'Patiente...' : following ? '✓ Abonné(e) · Se désabonner' : followRequested ? 'Demande envoyée · Annuler' : viewedProfile.is_private ? "Demander à s'abonner" : "S'abonner"}
               </button>
-              <h3 style={{ marginTop: 30, fontSize: 16 }}>Publications</h3>
+              {viewedProfile.is_private && !following && <p style={{ padding: 16, background: '#24252e', borderRadius: 12, marginTop: 20 }}>🔒 Compte privé · Abonne-toi et attends son accord pour voir ses publications.</p>}
+              {(!viewedProfile.is_private || following) && <><h3 style={{ marginTop: 30, fontSize: 16 }}>Publications</h3>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 5 }}>
                 {posts.filter(post => post.user_id === viewedProfile.user_id).map(post => (
                   <button key={post.id} type="button" aria-label="Ouvrir la publication"
@@ -2106,7 +2148,7 @@ function App() {
                       : <img src={post.media_url} alt={post.caption || 'Publication'} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
                   </button>
                 ))}
-              </div>
+              </div></>}
             </>}
           </div>
         </div>
