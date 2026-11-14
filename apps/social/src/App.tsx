@@ -192,6 +192,7 @@ function App() {
   const [profile, setProfile] = useState<SocialProfile | null>(null)
   const [profileLoading, setProfileLoading] = useState(false)
   const [profileEditing, setProfileEditing] = useState(false)
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false)
   const [profileBusy, setProfileBusy] = useState(false)
   const [profileError, setProfileError] = useState('')
   const [profileMessage, setProfileMessage] = useState('')
@@ -1546,6 +1547,26 @@ function App() {
                       📍 {profile.city || 'Ta ville'}
                     </p>
                   </div>
+                  <div style={{ marginLeft: 'auto', alignSelf: 'flex-start', position: 'relative' }}>
+                    <button type="button" aria-label="Options de mon profil" aria-expanded={profileMenuOpen}
+                      onClick={() => setProfileMenuOpen(current => !current)}
+                      style={{ border: 'none', background: 'transparent', color: '#fff', fontSize: 26, cursor: 'pointer', padding: '0 4px' }}>•••</button>
+                    {profileMenuOpen && (
+                      <div style={{ position: 'absolute', right: 0, top: '100%', zIndex: 25, minWidth: 190,
+                        background: '#24252e', border: '1px solid #444550', borderRadius: 12, padding: 5,
+                        boxShadow: '0 8px 25px rgba(0,0,0,.5)' }}>
+                        <button type="button" onClick={() => {
+                          setProfileEditing(true)
+                          setProfileMenuOpen(false)
+                          setProfileMessage('')
+                          setProfileError('')
+                        }} style={{ width: '100%', background: 'transparent', border: 'none', color: '#fff',
+                          textAlign: 'left', padding: 12, cursor: 'pointer', fontSize: 13 }}>
+                          ✎ Modifier mon profil
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <p
@@ -1608,27 +1629,10 @@ function App() {
                   ))}
                 </div>
 
-                {!profileEditing && (
-                  <button
-                    style={{
-                      ...primaryStyle,
-                      marginTop: 20
-                    }}
-                    onClick={() => {
-                      setProfileEditing(true)
-                      setProfileMessage('')
-                      setProfileError('')
-                    }}
-                  >
-                    ✎ Modifier mon profil
-                  </button>
-                )}
-              </div>
-
               {profileEditing && (
                 <form
                   onSubmit={saveProfile}
-                  style={cardStyle}
+                  style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid #30313b' }}
                 >
                   <h3 style={{ marginTop: 0 }}>
                     Modifier mon profil
@@ -1780,6 +1784,7 @@ function App() {
                   </button>
                 </form>
               )}
+              </div>
 
               {profileError && (
                 <p
