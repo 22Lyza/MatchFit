@@ -39,8 +39,8 @@ const discoverDemos: SocialPost[] = [
   { id: 'discover-demo-course', user_id: 'discover-demo-course', caption: 'Alex · Course — Objectif atteint 🏅', media_url: 'https://images.unsplash.com/photo-1538805060514-97d9cc17730c?w=900&auto=format&fit=crop&q=80', media_type: 'image', created_at: '2026-11-13', hide_like_count: false, comments_disabled: false },
 ]
 
-type StoredComment = { id: string; post_id: string; user_id: string; content: string; created_at: string }
-type DisplayComment = { id: string; name: string; text: string; demo: boolean }
+type StoredComment = { id: string; post_id: string; user_id: string; content: string; created_at: string; parent_id: string | null }
+type DisplayComment = { id: string; name: string; text: string; demo: boolean; parentId: string | null }
 
 type PostAuthor = {
   first_name: string
@@ -169,6 +169,8 @@ function App() {
   const [reportMessage, setReportMessage] = useState('')
   const [comments, setComments] = useState<Record<string, string[]>>({})
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({})
+  const [replyTo, setReplyTo] = useState<{ postId: string; commentId: string; username: string } | null>(null)
+  const [demoReplies, setDemoReplies] = useState<Record<string, DisplayComment[]>>({})
   const [commentModal, setCommentModal] = useState<{ id: string; author: string; caption: string } | null>(null)
   const [interactionMessage, setInteractionMessage] = useState('')
   const [creationOpen, setCreationOpen] = useState(false)
@@ -452,7 +454,7 @@ function App() {
     try {
       const [likesResult, commentsResult] = await Promise.all([
         supabase.from('social_post_likes').select('post_id, user_id').in('post_id', ids),
-        supabase.from('social_comments').select('id, post_id, user_id, content, created_at').in('post_id', ids).order('created_at', { ascending: true }).limit(1000)
+        supabase.from('social_comments').select('id, post_id, user_id, content, created_at, parent_id').in('post_id', ids).order('created_at', { ascending: true }).limit(1000)
       ])
       if (likesResult.error) throw likesResult.error
       if (commentsResult.error) throw commentsResult.error
@@ -473,7 +475,7 @@ function App() {
         const { data, error } = await supabase.from('social_profiles').select('user_id, first_name, username').in('user_id', userIds)
         if (error) throw error
         const names: Record<string, string> = {}
-        for (const person of data ?? []) names[person.user_id] = person.first_name || person.username || 'Sportif'
+        for (const person of data ?? []) names[person.user_id] = person.username ? '@' + person.username.replace(/^@/, '') : 'Sportif'
         setCommentAuthors(names)
       }
       const commentIds = fetched.map(comment => comment.id)
@@ -519,6 +521,13 @@ function App() {
   async function submitComment(postId: string) {
     const value = (commentDrafts[postId] || '').trim()
     if (!value || value.length > 1000 || interactionBusy['comment:' + postId]) return
+    const parentId = replyTo?.postId === postId ? replyTo.commentId : null
+    if (isDemoPost(postId) && parentId) {
+      setDemoReplies(current => ({ ...current, [postId]: [...(current[postId] || []), { id: `${postId}:reply:${Date.now()}`, name: profile?.username ? '@' + profile.username.replace(/^@/, '') : 'Sportif', text: value, demo: true, parentId }] }))
+      setCommentDrafts(current => ({ ...current, [postId]: '' }))
+      setReplyTo(null)
+      return
+    }
     if (isDemoPost(postId)) {
       setComments(current => ({ ...current, [postId]: [...(current[postId] || []), value] }))
       setCommentDrafts(current => ({ ...current, [postId]: '' }))
@@ -528,26 +537,44 @@ function App() {
     if (!userId) return
     setInteractionBusy(current => ({ ...current, ['comment:' + postId]: true }))
     const { data, error } = await supabase.from('social_comments')
-      .insert({ post_id: postId, user_id: userId, content: value })
-      .select('id, post_id, user_id, content, created_at').single()
+      .insert({ post_id: postId, user_id: userId, content: value, parent_id: parentId })
+      .select('id, post_id, user_id, content, created_at, parent_id').single()
     if (error) setInteractionMessage('Commentaire impossible : ' + error.message)
     else if (data) {
       setStoredComments(current => ({ ...current, [postId]: [...(current[postId] || []), data as StoredComment] }))
-      setCommentAuthors(current => ({ ...current, [userId]: profile?.first_name || profile?.username || 'Moi' }))
+      setCommentAuthors(current => ({ ...current, [userId]: profile?.username ? '@' + profile.username.replace(/^@/, '') : 'Sportif' }))
       setCommentDrafts(current => ({ ...current, [postId]: '' }))
+      setReplyTo(null)
     }
     setInteractionBusy(current => ({ ...current, ['comment:' + postId]: false }))
   }
 
   function getDisplayComments(postId: string): DisplayComment[] {
     if (isDemoPost(postId)) {
-      return [...(demoComments[postId] || []), ...(comments[postId] || []).map(text => ({ name: 'Moi', text }))]
-        .map((comment, index) => ({ id: `${postId}:${index}`, name: comment.name, text: comment.text, demo: true }))
+      const base = [...(demoComments[postId] || []), ...(comments[postId] || []).map(text => ({ name: profile?.username ? '@' + profile.username.replace(/^@/, '') : 'Sportif', text }))]
+        .map((comment, index) => ({ id: `${postId}:${index}`, name: comment.name.startsWith('@') ? comment.name : '@' + comment.name.toLowerCase(), text: comment.text, demo: true, parentId: null }))
+      return [...base, ...(demoReplies[postId] || [])]
     }
     return (storedComments[postId] || []).map(comment => ({
-      id: comment.id, name: commentAuthors[comment.user_id] || (comment.user_id === session?.user.id ? 'Moi' : 'Sportif'),
-      text: comment.content, demo: false
+      id: comment.id,
+      name: commentAuthors[comment.user_id] || (comment.user_id === session?.user.id && profile?.username ? '@' + profile.username.replace(/^@/, '') : 'Sportif'),
+      text: comment.content, demo: false, parentId: comment.parent_id
     }))
+  }
+
+  function threadedComments(postId: string): DisplayComment[] {
+    const all = getDisplayComments(postId)
+    const roots = all.filter(comment => !comment.parentId)
+    return roots.flatMap(root => [root, ...all.filter(comment => comment.parentId === root.id)])
+  }
+
+  function replyButton(postId: string, comment: DisplayComment) {
+    return (
+      <button type="button" onClick={() => {
+        setReplyTo({ postId, commentId: comment.parentId || comment.id, username: comment.name })
+        setCommentModal(current => current?.id === postId ? current : { id: postId, author: '', caption: '' })
+      }} style={{ ...linkStyle, color: '#a4a4ad', fontSize: 12, padding: '4px 0' }}>Répondre</button>
+    )
   }
 
   async function toggleCommentLike(commentId: string, demo: boolean) {
@@ -1844,12 +1871,12 @@ function App() {
                 <strong>{commentModal.author}</strong> {commentModal.caption}
               </p>
             )}
-            {getDisplayComments(commentModal.id).map(comment => (
-              <div key={comment.id} style={{ display: 'flex', gap: 12, marginBottom: 22, alignItems: 'flex-start' }}>
+            {threadedComments(commentModal.id).map(comment => (
+              <div key={comment.id} style={{ display: 'flex', gap: 12, marginBottom: comment.parentId ? 12 : 22, marginLeft: comment.parentId ? 35 : 0, alignItems: 'flex-start' }}>
                 <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#30313b', color: '#ff8a4b', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontWeight: 700 }}>
                   {comment.name.charAt(0).toUpperCase()}
                 </div>
-                <p style={{ margin: '7px 0 0', fontSize: 14, lineHeight: 1.5, flex: 1 }}><strong>{comment.name}</strong> {comment.text}</p>
+                <div style={{ flex: 1, minWidth: 0 }}><p style={{ margin: '7px 0 2px', fontSize: 14, lineHeight: 1.5 }}><strong>{comment.name}</strong> {comment.text}</p>{replyButton(commentModal.id, comment)}</div>
                 {commentHeart(comment)}
               </div>
             ))}
@@ -1857,9 +1884,10 @@ function App() {
               <p style={{ textAlign: 'center', color: '#a4a4ad', marginTop: 40 }}>Aucun commentaire pour le moment.</p>
             )}
           </div>
-          <form onSubmit={event => { event.preventDefault(); submitComment(commentModal.id) }}
+          {replyTo?.postId === commentModal.id && <div style={{ padding: '8px 18px', fontSize: 12, color: '#a4a4ad', display: 'flex', justifyContent: 'space-between' }}><span>Réponse à {replyTo.username}</span><button type="button" onClick={() => setReplyTo(null)} style={{ ...linkStyle, color: '#ff8a4b' }}>Annuler</button></div>}
+          <form onSubmit={event => { event.preventDefault(); void submitComment(commentModal.id) }}
             style={{ display: 'flex', gap: 8, padding: '14px 18px max(18px, env(safe-area-inset-bottom))', borderTop: '1px solid #30313b', background: '#17181f', width: '100%', boxSizing: 'border-box', flexShrink: 0 }}>
-            <input aria-label="Ton commentaire" placeholder="Ajouter un commentaire..."
+            <input aria-label="Ton commentaire" placeholder={replyTo?.postId === commentModal.id ? `Répondre à ${replyTo.username}...` : "Ajouter un commentaire..."}
               value={commentDrafts[commentModal.id] || ''}
               onChange={event => setCommentDrafts(current => ({ ...current, [commentModal.id]: event.target.value }))}
               style={{ ...fieldStyle, margin: 0, minWidth: 0, flex: 1, padding: 12 }} />
