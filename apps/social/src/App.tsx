@@ -200,7 +200,7 @@ function App() {
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
 
   const [selectedPost, setSelectedPost] = useState<SocialPost | null>(null)
-  const [ownPostMenuOpen, setOwnPostMenuOpen] = useState(false)
+  const [ownPostMenuOpen, setOwnPostMenuOpen] = useState<string | null>(null)
 
   useEffect(() => {
     let active = true
@@ -742,10 +742,10 @@ function App() {
           {post.user_id !== session?.user.id && !isDemoPost(post.id) && postOptions(post.id, authorName, false)}
           {inPreview && post.user_id === session?.user.id && (
             <div style={{ marginLeft: 'auto', position: 'relative' }}>
-              <button type="button" aria-label="Gérer ma publication" aria-expanded={ownPostMenuOpen}
-                onClick={() => setOwnPostMenuOpen(current => !current)}
+              <button type="button" aria-label="Gérer ma publication" aria-expanded={ownPostMenuOpen === post.id}
+                onClick={() => setOwnPostMenuOpen(current => current === post.id ? null : post.id)}
                 style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: 25, cursor: 'pointer', padding: '8px 4px' }}>•••</button>
-              {ownPostMenuOpen && <div style={{ position: 'absolute', top: '100%', right: 0, zIndex: 30, width: 275,
+              {ownPostMenuOpen === post.id && <div style={{ position: 'absolute', top: '100%', right: 0, zIndex: 30, width: 275,
                 maxWidth: 'calc(100vw - 70px)', background: '#24252e', border: '1px solid #444550', borderRadius: 12,
                 padding: 15, boxShadow: '0 8px 25px rgba(0,0,0,.5)' }}>
                 <strong style={{ display: 'block', marginBottom: 12, fontSize: 14 }}>Confidentialité de la publication</strong>
@@ -1352,7 +1352,7 @@ function App() {
             {[...posts, ...discoverDemos].map(post => (
               <button type="button" key={post.id}
                 aria-label={`Ouvrir la publication de ${authors[post.user_id]?.first_name || 'Sportif MatchFit'}`}
-                onClick={() => { setOwnPostMenuOpen(false); setSelectedPost(post) }}
+                onClick={() => { setOwnPostMenuOpen(null); setSelectedPost(post) }}
                 style={{ aspectRatio: '1', overflow: 'hidden', borderRadius: 12,
                   background: '#24252e', position: 'relative', border: '1px solid #30313b',
                   padding: 0, cursor: 'pointer', display: 'block', width: '100%' }}>
@@ -1754,7 +1754,7 @@ function App() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 5, marginTop: 15 }}>
                   {posts.filter(post => post.user_id === session.user.id).map(post => (
                     <button type="button" key={post.id} aria-label="Ouvrir ma publication"
-                      onClick={() => { setOwnPostMenuOpen(false); setSelectedPost(post) }}
+                      onClick={() => { setOwnPostMenuOpen(null); setSelectedPost(post) }}
                       style={{ aspectRatio: '1', overflow: 'hidden', borderRadius: 5, background: '#24252e',
                         position: 'relative', border: 'none', padding: 0, cursor: 'pointer' }}>
                       {post.media_type === 'video' ? (
@@ -1992,15 +1992,37 @@ function App() {
       )}
 
       {selectedPost && (
-        <div className="creation-overlay" onClick={() => { setSelectedPost(null); setOwnPostMenuOpen(false) }}>
-          <div className="creation-panel" role="dialog" aria-modal="true" aria-label="Publication"
-            onClick={event => event.stopPropagation()} style={{ maxHeight: '90dvh', overflowY: 'auto' }}>
-            <div className="creation-header">
-              <h2 style={{ fontSize: 17 }}>Publication</h2>
-              <button className="creation-close" onClick={() => { setSelectedPost(null); setOwnPostMenuOpen(false) }} aria-label="Fermer">✕</button>
+        <div role="dialog" aria-modal="true" aria-label="Publication en grand"
+          style={{ position: 'fixed', inset: 0, zIndex: 1000, background: '#0b0c10', overflowY: 'auto', overscrollBehavior: 'contain' }}>
+          <div style={{ maxWidth: 620, margin: '0 auto', minHeight: '100dvh', background: '#0b0c10' }}>
+            <div style={{ position: 'sticky', top: 0, zIndex: 40, display: 'flex', alignItems: 'center', gap: 15,
+              padding: '13px 16px', background: '#0b0c10', borderBottom: '1px solid #30313b' }}>
+              <button type="button" aria-label="Retour aux publications"
+                onClick={() => { setSelectedPost(null); setOwnPostMenuOpen(null); setPostMenu(null) }}
+                style={{ background: 'transparent', color: '#fff', border: 'none', fontSize: 28,
+                  lineHeight: 1, cursor: 'pointer', padding: '3px 8px 3px 0' }}>←</button>
+              <strong style={{ fontSize: 17 }}>Publication</strong>
             </div>
-            {renderPost(posts.find(post => post.id === selectedPost.id) || selectedPost, true)}
-            {isDemoPost(selectedPost.id) && <p style={{ padding: '0 16px 16px', color: '#a4a4ad', fontSize: 12 }}>Exemple fictif : non enregistré dans Supabase.</p>}
+            <div style={{ padding: '16px 0 80px' }}>
+              {(() => {
+                const currentPost = posts.find(post => post.id === selectedPost.id) || selectedPost
+                const ownPosts = posts.filter(post => post.user_id === session?.user.id)
+                const currentIndex = ownPosts.findIndex(post => post.id === currentPost.id)
+                const visiblePosts = currentIndex >= 0
+                  ? [...ownPosts.slice(currentIndex), ...ownPosts.slice(0, currentIndex)]
+                  : [currentPost]
+                return visiblePosts.map((post, index) => (
+                  <div key={post.id} style={{ marginBottom: index === visiblePosts.length - 1 ? 0 : 28 }}>
+                    {renderPost(post, true)}
+                  </div>
+                ))
+              })()}
+              {isDemoPost(selectedPost.id) && (
+                <p style={{ padding: '0 16px 16px', color: '#a4a4ad', fontSize: 12 }}>
+                  Exemple fictif : non enregistré dans Supabase.
+                </p>
+              )}
+            </div>
           </div>
         </div>
       )}
