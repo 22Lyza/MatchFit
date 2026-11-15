@@ -549,3 +549,13 @@ input, textarea, select {
 @media (min-width: 768px) {
   .app { max-width: 520px; }
 }
+
+/* Ajustement navigation iPhone : compacte sans recouvrir la zone du geste d’accueil */
+.bottom-nav {
+  min-height: calc(60px + var(--mf-safe-bottom));
+  padding-top: 5px;
+  padding-bottom: calc(5px + var(--mf-safe-bottom));
+}
+.bottom-nav button { padding: 4px 0; gap: 3px; }
+.bottom-nav button span { font-size: 21px; }
+.app { padding-bottom: calc(78px + var(--mf-safe-bottom)); }
