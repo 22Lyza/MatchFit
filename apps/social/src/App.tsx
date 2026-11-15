@@ -189,7 +189,8 @@ function ActivityShare({ activity, startMeters, endMeters, hidePace }: { activit
       ctx.font = 'bold 100px Arial, sans-serif'
       ctx.fillText(activity.distance_km === null ? '—' : `${activity.distance_km.toFixed(2).replace('.', ',')} km`, width / 2, 315)
       const seconds = activity.duration_seconds
-      const duration = `${String(Math.floor(seconds / 3600)).padStart(2, '0')}h${String(Math.floor((seconds % 3600) / 60)).padStart(2, '0')}`
+      const totalMinutes = Math.floor(seconds / 60)
+      const duration = totalMinutes < 60 ? `${totalMinutes} minutes` : `${Math.floor(totalMinutes / 60)}h${String(totalMinutes % 60).padStart(2, '0')}`
       // Statistiques centrales : temps toujours visible, allure selon confidentialité.
       ctx.font = 'bold 55px Arial, sans-serif'
       ctx.fillText(duration, width / 2, 405)
@@ -255,8 +256,9 @@ function ActivityShare({ activity, startMeters, endMeters, hidePace }: { activit
 
   return <div style={{ marginTop: 10 }}>
     <button type="button" onClick={() => setShowOptions(value => !value)}
-      style={{ border: 0, background: 'transparent', color: '#d4d4dc', padding: '6px 0', fontSize: 13, cursor: 'pointer' }}>
-      ↗ Partager
+      aria-label="Partager l’activité" title="Partager" aria-expanded={showOptions}
+      style={{ border: 0, background: 'transparent', color: '#d4d4dc', padding: '6px 8px', fontSize: 22, lineHeight: 1, cursor: 'pointer' }}>
+      ↗
     </button>
     {showOptions && <div style={{ display: 'grid', gap: 10, padding: '10px 0', fontSize: 13 }}>
       <span style={{ color: '#a4a4ad' }}>Temps inclus automatiquement{hidePace ? '' : ' · Allure incluse'}</span>
