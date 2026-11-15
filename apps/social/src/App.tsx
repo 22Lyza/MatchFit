@@ -546,7 +546,6 @@ function App() {
     navigator.geolocation.getCurrentPosition(position => {
       if (cancelled) return
       setGpsPreviewPosition({ lat: position.coords.latitude, lng: position.coords.longitude })
-      setGpsPreviewPosition(next)
       setGpsAccuracy(position.coords.accuracy)
       setGpsCurrentAltitude(position.coords.altitude !== null && Number.isFinite(position.coords.altitude) ? position.coords.altitude : null)
       setGpsError('')
