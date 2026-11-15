@@ -157,6 +157,9 @@ function ActivityMap({ points = [], follow = false, height = 290 }: { points?: M
 }
 
 function ActivityShare({ activity, startMeters, endMeters, hidePace }: { activity: Activity; startMeters: number; endMeters: number; hidePace: boolean }) {
+  const [showOptions, setShowOptions] = useState(false)
+  const [includeElevation, setIncludeElevation] = useState(false)
+  const [includeSpeed, setIncludeSpeed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
 
@@ -185,14 +188,26 @@ function ActivityShare({ activity, startMeters, endMeters, hidePace }: { activit
       ctx.fillText(activity.sport.toUpperCase(), width / 2, 166)
       ctx.font = 'bold 100px Arial, sans-serif'
       ctx.fillText(activity.distance_km === null ? '—' : `${activity.distance_km.toFixed(2).replace('.', ',')} km`, width / 2, 315)
-      ctx.font = 'bold 34px Arial, sans-serif'
       const seconds = activity.duration_seconds
-      const duration = `${Math.floor(seconds / 3600) ? Math.floor(seconds / 3600) + 'h ' : ''}${Math.floor(seconds % 3600 / 60)}min ${String(seconds % 60).padStart(2, '0')}s`
-      ctx.fillText(`TEMPS  ${duration}`, width / 2, 390)
-      if (activity.elevation_m !== null) ctx.fillText(`D+  ${Math.round(activity.elevation_m)} m`, width / 2, 445)
+      const duration = `${String(Math.floor(seconds / 3600)).padStart(2, '0')}h${String(Math.floor((seconds % 3600) / 60)).padStart(2, '0')}`
+      // Statistiques centrales : temps toujours visible, allure selon confidentialité.
+      ctx.font = 'bold 55px Arial, sans-serif'
+      ctx.fillText(duration, width / 2, 405)
+      let statY = 475
       if (!hidePace && activity.distance_km !== null && activity.distance_km > 0) {
         const pace = Math.round(seconds / activity.distance_km)
-        ctx.fillText(`ALLURE  ${Math.floor(pace / 60)}:${String(pace % 60).padStart(2, '0')} /km`, width / 2, 500)
+        ctx.font = 'bold 39px Arial, sans-serif'
+        ctx.fillText(`${Math.floor(pace / 60)}:${String(pace % 60).padStart(2, '0')} /km`, width / 2, statY)
+        statY += 58
+      }
+      if (includeElevation && activity.elevation_m !== null) {
+        ctx.font = 'bold 34px Arial, sans-serif'
+        ctx.fillText(`D+ ${Math.round(activity.elevation_m)} m`, width / 2, statY)
+        statY += 52
+      }
+      if (includeSpeed && activity.distance_km !== null && seconds > 0) {
+        ctx.font = 'bold 34px Arial, sans-serif'
+        ctx.fillText(`${(activity.distance_km * 3600 / seconds).toFixed(1).replace('.', ',')} km/h`, width / 2, statY)
       }
       const route = privacyRoute(activity.route ?? [], startMeters, endMeters)
       if (route.length > 1) {
@@ -220,10 +235,6 @@ function ActivityShare({ activity, startMeters, endMeters, hidePace }: { activit
         ctx.lineJoin = 'round'
         ctx.stroke()
       }
-      ctx.shadowBlur = 14
-      ctx.fillStyle = '#fff'
-      ctx.font = 'bold 40px Arial, sans-serif'
-      ctx.fillText('MATCHFIT SOCIAL', width / 2, 1140)
 
       if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
         throw new Error('Copie d’image non disponible sur cet appareil. Le partage natif iOS nécessitera une adaptation.')
@@ -243,10 +254,25 @@ function ActivityShare({ activity, startMeters, endMeters, hidePace }: { activit
   }
 
   return <div style={{ marginTop: 10 }}>
-    <button type="button" disabled={busy} onClick={() => void copyActivity()}
-      style={{ border: 0, background: 'transparent', color: '#d4d4dc', padding: '6px 0', fontSize: 13, cursor: busy ? 'wait' : 'pointer' }}>
-      ↗ {busy ? 'Copie…' : 'Partager'}
+    <button type="button" onClick={() => setShowOptions(value => !value)}
+      style={{ border: 0, background: 'transparent', color: '#d4d4dc', padding: '6px 0', fontSize: 13, cursor: 'pointer' }}>
+      ↗ Partager
     </button>
+    {showOptions && <div style={{ display: 'grid', gap: 10, padding: '10px 0', fontSize: 13 }}>
+      <span style={{ color: '#a4a4ad' }}>Temps inclus automatiquement{hidePace ? '' : ' · Allure incluse'}</span>
+      <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <input type="checkbox" checked={includeElevation} onChange={event => setIncludeElevation(event.target.checked)} />
+        Ajouter le dénivelé
+      </label>
+      <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <input type="checkbox" checked={includeSpeed} onChange={event => setIncludeSpeed(event.target.checked)} />
+        Ajouter la vitesse
+      </label>
+      <button type="button" disabled={busy} onClick={() => void copyActivity()}
+        style={{ justifySelf: 'start', border: '1px solid #444550', borderRadius: 8, background: 'transparent', color: '#fff', padding: '8px 12px', fontSize: 13, cursor: busy ? 'wait' : 'pointer' }}>
+        {busy ? 'Copie…' : 'Copier le visuel'}
+      </button>
+    </div>}
     {message && <p role="status" style={{ color: '#a4a4ad', fontSize: 12, margin: '4px 0' }}>{message}</p>}
   </div>
 }
