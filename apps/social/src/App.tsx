@@ -43,6 +43,61 @@ function loadLeaflet(): Promise<LeafletAPI> {
   }
   return leafletPromise
 }
+// Masquage d'affichage uniquement : la distance et le parcours enregistrés ne sont pas recalculés.
+function distanceBetweenMeters(a: MapPoint, b: MapPoint): number {
+  const r = Math.PI / 180
+  const dLat = (b.lat - a.lat) * r
+  const dLng = (b.lng - a.lng) * r
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLng / 2) ** 2
+  return 6371000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h))
+}
+function privacyRoute(points: MapPoint[], startMeters: number, endMeters: number, live = false): MapPoint[] {
+  if (startMeters === 0 && endMeters === 0) return points
+  if (points.length < 2) return []
+  const start = points[0]
+  const end = points[points.length - 1]
+  // Les deux distances sont indépendantes. La trace complète et les statistiques restent inchangées.
+  if (!live) return points.filter(point =>
+    (startMeters === 0 || distanceBetweenMeters(point, start) > startMeters) &&
+    (endMeters === 0 || distanceBetweenMeters(point, end) > endMeters)
+  )
+  // Pendant l'enregistrement, cacher la fin de la trace sur la distance parcourue
+  // (sinon la position actuelle serait visible en temps réel).
+  let lastSafeIndex = points.length - 1
+  if (endMeters > 0) {
+    let trailingMeters = 0
+    lastSafeIndex = -1
+    for (let i = points.length - 1; i > 0; i--) {
+      trailingMeters += distanceBetweenMeters(points[i], points[i - 1])
+      if (trailingMeters >= endMeters) { lastSafeIndex = i - 1; break }
+    }
+  }
+  if (lastSafeIndex < 0) return []
+  return points.slice(0, lastSafeIndex + 1).filter(point =>
+    startMeters === 0 || distanceBetweenMeters(point, start) > startMeters
+  )
+}
+function PrivacyDistanceControls({ startMeters, endMeters, setStartMeters, setEndMeters }: {
+  startMeters: number; endMeters: number;
+  setStartMeters: (meters: number) => void; setEndMeters: (meters: number) => void
+}) {
+  return <div style={{ marginTop: 12, display: 'grid', gap: 12, padding: 12, border: '1px solid #343541', borderRadius: 12 }}>
+    <strong style={{ fontSize: 13 }}>Confidentialité du parcours</strong>
+    <label style={{ display: 'grid', gap: 6, fontSize: 13 }}>
+      <span>Masquer le départ : <strong>{startMeters} m</strong></span>
+      <input type="range" min={0} max={1000} step={50} value={startMeters}
+        onChange={event => setStartMeters(Number(event.target.value))} aria-label="Distance masquée au départ" />
+      <span style={{ display: 'flex', justifyContent: 'space-between', color: '#a4a4ad', fontSize: 11 }}><span>0 m</span><span>1 km</span></span>
+    </label>
+    <label style={{ display: 'grid', gap: 6, fontSize: 13 }}>
+      <span>Masquer l’arrivée : <strong>{endMeters} m</strong></span>
+      <input type="range" min={0} max={1000} step={50} value={endMeters}
+        onChange={event => setEndMeters(Number(event.target.value))} aria-label="Distance masquée à l'arrivée" />
+      <span style={{ display: 'flex', justifyContent: 'space-between', color: '#a4a4ad', fontSize: 11 }}><span>0 m</span><span>1 km</span></span>
+    </label>
+    <span style={{ color: '#a4a4ad', fontSize: 11 }}>0 m = aucun masquage. La distance totale reste inchangée. Les points GPS complets sont toujours enregistrés.</span>
+  </div>
+}
 function ActivityMap({ points = [], follow = false, height = 290 }: { points?: MapPoint[]; follow?: boolean; height?: number }) {
   const element = useRef<HTMLDivElement | null>(null)
   const map = useRef<LeafletMap | null>(null)
@@ -78,7 +133,7 @@ function ActivityMap({ points = [], follow = false, height = 290 }: { points?: M
     const last = coords[coords.length - 1]
     if (!marker.current) marker.current = window.L.circleMarker(last, { radius: 7, color: '#fff', weight: 2, fillColor: '#ff6558', fillOpacity: 1 }).addTo(map.current)
     else marker.current.setLatLng(last)
-    if (follow) map.current.setView(last, 16)
+    if (follow) map.current.setView(last, 17)
     else map.current.fitBounds(coords, { padding: [24, 24], maxZoom: 16 })
   }, [points, follow])
   return <div style={{ marginBottom: 16 }}>
@@ -314,6 +369,9 @@ function App() {
   const [activityNotes, setActivityNotes] = useState('')
   const [activitySaving, setActivitySaving] = useState(false)
   const [gpsStatus, setGpsStatus] = useState<'idle' | 'running' | 'paused'>('idle')
+  const [hideStartMeters, setHideStartMeters] = useState(200)
+  const [hideEndMeters, setHideEndMeters] = useState(200)
+  const [hidePace, setHidePace] = useState(false)
   const [gpsPoints, setGpsPoints] = useState<{ lat: number; lng: number }[]>([])
   const [gpsSeconds, setGpsSeconds] = useState(0)
   const [gpsDistance, setGpsDistance] = useState(0)
@@ -1863,16 +1921,22 @@ function App() {
               <div style={{ marginBottom: 22 }}>
                 <button type="button" style={primaryStyle} onClick={() => { setActivityError(''); setActivityMode('choose') }}>＋ Enregistrer une activité</button>
               </div>
+              <div style={{ ...cardStyle, marginTop: 8, marginBottom: 16, padding: 14 }}>
+                <strong>Confidentialité et affichage</strong><p style={{ color: '#a4a4ad', fontSize: 11, marginTop: 6 }}>Carte OpenStreetMap : routes, petits chemins et toilettes publiques selon les données locales et le niveau de zoom.</p>
+                <PrivacyDistanceControls startMeters={hideStartMeters} endMeters={hideEndMeters} setStartMeters={setHideStartMeters} setEndMeters={setHideEndMeters} />
+                <label style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 10, fontSize: 13 }}><input type="checkbox" checked={hidePace} onChange={event => setHidePace(event.target.checked)} /> Masquer mon allure moyenne</label>
+                <p style={{ color: '#a4a4ad', fontSize: 11, marginBottom: 0 }}>Ces réglages changent l'affichage uniquement. La distance totale reste intacte. Le parcours GPS complet reste enregistré dans ton compte.</p>
+              </div>
               {activityLoading && <p>Chargement de tes activités...</p>}
               {!activityLoading && activities.length === 0 && !activityError && <p style={{ color: '#a4a4ad' }}>Aucune activité pour le moment. Enregistre ta première séance !</p>}
               {activities.map(activity => <article key={activity.id} style={{ ...cardStyle, marginTop: 12 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}><strong>{activity.title}</strong><span style={{ color: '#ff8a4b', fontSize: 12 }}>{activity.source === 'gps' ? 'GPS' : 'Manuel'}</span></div>
                 <p style={{ color: '#a4a4ad', fontSize: 13 }}>{activity.sport} · {new Date(activity.started_at).toLocaleDateString('fr-CH')}</p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, fontSize: 14 }}><span>⏱ {formatActivityTime(activity.duration_seconds)}</span>{activity.distance_km !== null && <span>↗ {activity.distance_km.toFixed(2)} km</span>}{activity.elevation_m !== null && <span>⛰ {activity.elevation_m} m</span>}</div>
-                {activity.distance_km !== null && activity.distance_km > 0 && <p style={{ fontSize: 12, color: '#a4a4ad' }}>Allure moyenne : {Math.floor(activity.duration_seconds / 60 / activity.distance_km)}:{String(Math.round(activity.duration_seconds / activity.distance_km) % 60).padStart(2, '0')} /km</p>}
+                {!hidePace && activity.distance_km !== null && activity.distance_km > 0 && <p style={{ fontSize: 12, color: '#a4a4ad' }}>Allure moyenne : {Math.floor(activity.duration_seconds / 60 / activity.distance_km)}:{String(Math.round(activity.duration_seconds / activity.distance_km) % 60).padStart(2, '0')} /km</p>}
                 {activity.notes && <p style={{ fontSize: 13 }}>{activity.notes}</p>}
                 {activity.source === 'gps' && <p style={{ color: '#a4a4ad', fontSize: 12 }}>Parcours enregistré : {activity.route?.length ?? 0} points GPS</p>}
-                {activity.source === 'gps' && activity.route && activity.route.length > 0 && <ActivityMap points={activity.route} height={220} />}
+                {activity.source === 'gps' && activity.route && activity.route.length > 0 && (privacyRoute(activity.route, hideStartMeters, hideEndMeters).length ? <ActivityMap points={privacyRoute(activity.route, hideStartMeters, hideEndMeters)} height={220} /> : <p style={{ color: '#a4a4ad', fontSize: 12 }}>Parcours masqué pour protéger les lieux de départ et d’arrivée.</p>)}
               </article>)}
               <div style={{ marginTop: 26 }}>
                 <h3 style={{ marginBottom: 5 }}>Activités de démonstration</h3>
@@ -1888,7 +1952,7 @@ function App() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}><strong>{demo.title}</strong><span style={{ color: '#ff8a4b', fontSize: 11, fontWeight: 700 }}>DÉMO</span></div>
                     <p style={{ color: '#a4a4ad', fontSize: 13 }}>{demo.author} · {demo.sport}</p>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, fontSize: 14 }}><span>↗ {demo.distance.toFixed(2)} km</span><span>⏱ {formatActivityTime(demo.duration)}</span><span>⛰ +{demo.elevation} m</span></div>
-                    {demo.sport.includes('Course') || demo.sport.includes('Trail') ? <p style={{ fontSize: 12, color: '#a4a4ad' }}>Allure moyenne : {Math.floor(pace / 60)}:{String(Math.round(pace % 60)).padStart(2, '0')} /km</p> : null}
+                    {!hidePace && (demo.sport.includes('Course') || demo.sport.includes('Trail')) ? <p style={{ fontSize: 12, color: '#a4a4ad' }}>Allure moyenne : {Math.floor(pace / 60)}:{String(Math.round(pace % 60)).padStart(2, '0')} /km</p> : null}
                   </article>
                 })}
               </div>
@@ -1916,16 +1980,21 @@ function App() {
               <h3>Enregistrement GPS · {activitySport}</h3>
               <label>Sport<select style={fieldStyle} value={activitySport} onChange={event => setActivitySport(event.target.value)}>{['Course à pied', 'Trail', 'Marche', 'Randonnée', 'Vélo', 'Musculation', 'Natation', 'Fitness', 'Autre'].map(sport => <option key={sport}>{sport}</option>)}</select></label>
               <label>Titre<input style={fieldStyle} value={activityTitle} onChange={event => setActivityTitle(event.target.value)} placeholder="Ma séance du jour" maxLength={100} /></label>
+              <div style={{ ...cardStyle, margin: '0 0 14px', padding: 12 }}>
+                <strong style={{ fontSize: 13 }}>Confidentialité de la carte</strong>
+                <PrivacyDistanceControls startMeters={hideStartMeters} endMeters={hideEndMeters} setStartMeters={setHideStartMeters} setEndMeters={setHideEndMeters} />
+                <label style={{ display: 'flex', gap: 9, marginTop: 9, fontSize: 13, alignItems: 'center' }}><input type="checkbox" checked={hidePace} onChange={event => setHidePace(event.target.checked)} /> Masquer mon allure</label>
+              </div>
               {activityMode === 'manual' ? <>
                 <label>Date<input type="date" style={fieldStyle} value={activityDate} onChange={event => setActivityDate(event.target.value)} required /></label>
                 <label>Durée (minutes)<input type="number" min="1" step="1" style={fieldStyle} value={activityMinutes} onChange={event => setActivityMinutes(event.target.value)} placeholder="45" /></label>
                 <label>Distance (km, facultatif)<input type="number" min="0" step="0.01" style={fieldStyle} value={activityDistance} onChange={event => setActivityDistance(event.target.value)} placeholder="8.5" /></label>
               </> : <div className="mf-gps-recorder">
-                <div className="mf-gps-map-wrap"><ActivityMap points={gpsPoints.length ? gpsPoints : gpsPreviewPosition ? [gpsPreviewPosition] : []} follow={gpsStatus === 'running' || gpsPoints.length === 0} height={290} /></div>
+                <div className="mf-gps-map-wrap">{(hideStartMeters > 0 || hideEndMeters > 0) && privacyRoute(gpsPoints, hideStartMeters, hideEndMeters, true).length === 0 ? <div style={{ minHeight: 210, borderRadius: 14, background: '#24252e', display: 'grid', placeItems: 'center', padding: 20, textAlign: 'center', color: '#c4c4ce', fontSize: 13 }}>🔒 Position exacte masquée. La carte apparaîtra dès qu’une partie non masquée du parcours sera disponible.</div> : <ActivityMap points={(hideStartMeters > 0 || hideEndMeters > 0) ? privacyRoute(gpsPoints, hideStartMeters, hideEndMeters, true) : gpsPoints.length ? gpsPoints : gpsPreviewPosition ? [gpsPreviewPosition] : []} follow height={290} />}</div>
                 <div className="mf-gps-stats" aria-live="polite">
                   <div className="mf-gps-stat"><span>Distance</span><strong>{gpsDistance.toFixed(2)}</strong><small>km</small></div>
                   <div className="mf-gps-stat"><span>Durée</span><strong>{String(Math.floor(gpsSeconds / 3600)).padStart(2, '0')}:{String(Math.floor(gpsSeconds / 60) % 60).padStart(2, '0')}:{String(gpsSeconds % 60).padStart(2, '0')}</strong><small>h:min:s</small></div>
-                  <div className="mf-gps-stat"><span>Allure moyenne</span><strong>{gpsPaceLabel}</strong><small>min/km</small></div>
+                  {!hidePace && <div className="mf-gps-stat"><span>Allure moyenne</span><strong>{gpsPaceLabel}</strong><small>min/km</small></div>}
                   <div className="mf-gps-stat"><span>Dénivelé positif</span><strong>{gpsAltitudeSamples >= 2 ? `+${Math.round(gpsElevation)}` : '—'}</strong><small>m</small></div>
                 </div>
                 <div className="mf-gps-altitude">Altitude actuelle : <strong>{gpsCurrentAltitude === null ? '—' : `${Math.round(gpsCurrentAltitude)} m`}</strong></div>
