@@ -212,6 +212,7 @@ function App() {
   const [followRequests, setFollowRequests] = useState<{ follower_id: string; username: string }[]>([])
   const [privacyByUser, setPrivacyByUser] = useState<Record<string, boolean>>({})
   const [discoverSearch, setDiscoverSearch] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
   const [discoverPeople, setDiscoverPeople] = useState<SocialProfile[]>([])
   const [discoverPeopleError, setDiscoverPeopleError] = useState('')
   const [followBusy, setFollowBusy] = useState(false)
@@ -378,7 +379,7 @@ function App() {
   }
 
   useEffect(() => {
-    if (!session?.user.id || page !== 'decouvrir') return
+    if (!session?.user.id || !searchOpen) return
     let cancelled = false
     async function loadDiscoverPeople() {
       const { data, error } = await supabase.from('social_profiles')
@@ -390,7 +391,7 @@ function App() {
     }
     void loadDiscoverPeople()
     return () => { cancelled = true }
-  }, [session?.user.id, page])
+  }, [session?.user.id, searchOpen])
 
   const normalizedDiscoverSearch = discoverSearch.trim().toLocaleLowerCase('fr')
   const matchesDiscover = (person: SocialProfile) => {
@@ -399,12 +400,9 @@ function App() {
     return textMatches
   }
   const discoverMatches = discoverPeople.filter(person => person.user_id !== session?.user.id && matchesDiscover(person))
-  const discoverVisiblePosts = posts.filter(post => {
-    if (post.user_id === session?.user.id || privacyByUser[post.user_id]) return false
-    if (!normalizedDiscoverSearch) return true
-    const person = discoverPeople.find(item => item.user_id === post.user_id)
-    return !!person && matchesDiscover(person)
-  })
+  const discoverVisiblePosts = posts.filter(post =>
+    post.user_id !== session?.user.id && privacyByUser[post.user_id] === false
+  )
 
   async function publishPost(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -1388,6 +1386,21 @@ function App() {
           MATCH<span>FIT</span>
         </h1>
 
+        {page === 'accueil' && (
+          <div className="topbar-actions">
+            <button className="top-action" type="button"
+              aria-label={searchOpen ? 'Fermer la recherche' : 'Rechercher un sportif'}
+              title={searchOpen ? 'Fermer la recherche' : 'Rechercher'}
+              onClick={() => { setSearchOpen(current => !current); setDiscoverSearch('') }}
+              style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', padding: 8 }}>
+              {searchOpen ? <span style={{ fontSize: 26 }}>×</span> : (
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                  <circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 5 5"/>
+                </svg>
+              )}
+            </button>
+          </div>
+        )}
         {page === 'profil' && (
           <div className="topbar-actions">
             <button
@@ -1404,7 +1417,7 @@ function App() {
         )}
       </header>
 
-      {page === 'accueil' && (
+      {page === 'accueil' && !searchOpen && (
         <section className="home">
           <div className="stories">
             <div className="story" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
@@ -1488,13 +1501,12 @@ function App() {
         </section>
       )}
 
-      {page === 'decouvrir' && (
+      {page === 'accueil' && searchOpen && (
         <section className="placeholder-page">
-          {postsLoading && <p>Chargement des publications...</p>}
-          {postsError && <p role="alert" style={{ color: '#ff7777' }}>{postsError}</p>}
-          <label htmlFor="discover-search" style={{ display: 'block', fontSize: 13, marginTop: 15 }}>Rechercher un sportif, un pseudo, une ville ou un sport</label>
-          <input id="discover-search" type="search" value={discoverSearch} onChange={event => setDiscoverSearch(event.target.value)}
-            placeholder="Ex. running, Lausanne, @pseudo..." style={{ ...fieldStyle, marginBottom: 18 }} />
+          <label htmlFor="member-search" style={{ display: 'block', fontSize: 13, marginTop: 15 }}>Rechercher un sportif</label>
+          <input id="member-search" type="search" autoFocus value={discoverSearch}
+            onChange={event => setDiscoverSearch(event.target.value)}
+            placeholder="Pseudo, prénom, ville ou sport..." style={{ ...fieldStyle, marginBottom: 18 }} />
           {discoverPeopleError && <p role="alert" style={{ color: '#ff7777', fontSize: 12 }}>{discoverPeopleError}</p>}
           {normalizedDiscoverSearch && <>
             <h3 style={{ fontSize: 15, marginBottom: 10 }}>Sportifs ({discoverMatches.length})</h3>
@@ -1511,8 +1523,15 @@ function App() {
                 <span aria-label={person.is_private ? 'Compte privé' : 'Compte public'}>{person.is_private ? '🔒' : '›'}</span>
               </button>
             ))}
+            {discoverMatches.length === 0 && <p style={{ color: '#a4a4ad' }}>Aucun sportif trouvé.</p>}
           </>}
-          <h3 style={{ fontSize: 15, marginTop: 22, marginBottom: 8 }}>Publications ({discoverVisiblePosts.length})</h3>
+        </section>
+      )}
+
+      {page === 'decouvrir' && (
+        <section className="placeholder-page">
+          {postsLoading && <p>Chargement des publications...</p>}
+          {postsError && <p role="alert" style={{ color: '#ff7777' }}>{postsError}</p>}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 3, marginTop: 16 }}>
             {discoverVisiblePosts.map(post => (
               <button key={post.id} type="button" aria-label={'Ouvrir la publication : ' + (post.caption || 'Sans description')}
