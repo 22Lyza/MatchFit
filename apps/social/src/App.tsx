@@ -3,8 +3,10 @@ import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './supabase'
-import { Capacitor } from '@capacitor/core'
-import { BackgroundGeolocation } from '@capacitor-community/background-geolocation'
+import { Capacitor, registerPlugin } from '@capacitor/core'
+import type { BackgroundGeolocationPlugin } from '@capacitor-community/background-geolocation'
+
+const BackgroundGeolocation = registerPlugin<BackgroundGeolocationPlugin>('BackgroundGeolocation')
 
 // Carte OpenStreetMap interactive via Leaflet (chargement à la demande).
 // Aucun changement de dépendance npm n'est nécessaire.
