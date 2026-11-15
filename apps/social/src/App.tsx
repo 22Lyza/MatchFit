@@ -47,7 +47,6 @@ function ActivityMap({ points = [], follow = false, height = 290 }: { points?: M
   const latestPoints = useRef(points)
   latestPoints.current = points
   const [error, setError] = useState('')
-  const [locating, setLocating] = useState(false)
   useEffect(() => {
     let cancelled = false
     void loadLeaflet().then(L => {
@@ -78,20 +77,8 @@ function ActivityMap({ points = [], follow = false, height = 290 }: { points?: M
     if (follow) map.current.setView(last, 16)
     else map.current.fitBounds(coords, { padding: [24, 24], maxZoom: 16 })
   }, [points, follow])
-  function locate() {
-    if (!navigator.geolocation) { setError('Localisation non disponible.'); return }
-    setLocating(true)
-    navigator.geolocation.getCurrentPosition(position => {
-      map.current?.setView([position.coords.latitude, position.coords.longitude], 15)
-      setLocating(false); setError('')
-    }, () => { setLocating(false); setError('Localisation refusée ou indisponible.') }, { enableHighAccuracy: true, timeout: 12000 })
-  }
   return <div style={{ marginBottom: 16 }}>
     <div ref={element} style={{ height, width: '100%', background: '#252832', borderRadius: 14, overflow: 'hidden', position: 'relative', isolation: 'isolate', zIndex: 0 }} aria-label="Carte mondiale interactive OpenStreetMap" />
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginTop: 8 }}>
-      <span style={{ color: '#a4a4ad', fontSize: 11 }}>Carte © OpenStreetMap · zoom et déplacement libres</span>
-      <button type="button" onClick={locate} disabled={locating} style={{ background: '#24252e', color: '#fff', border: '1px solid #444550', borderRadius: 9, padding: '8px 10px', cursor: 'pointer', fontSize: 12 }}>{locating ? 'Localisation…' : '⌖ Ma position'}</button>
-    </div>
     {error && <p role="alert" style={{ color: '#ff7777', fontSize: 12 }}>{error}</p>}
   </div>
 }
