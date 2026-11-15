@@ -251,6 +251,7 @@ function ActivityShare({ activity, startMeters, endMeters, hidePace }: { activit
       })
       await navigator.clipboard.write([new ClipboardItem({ 'image/png': blobPromise })])
       setMessage('Image copiée ! Tu peux essayer de la coller dans Instagram.')
+      setShowOptions(false)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Copie impossible sur cet appareil.')
     } finally {
@@ -264,8 +265,11 @@ function ActivityShare({ activity, startMeters, endMeters, hidePace }: { activit
       style={{ border: 0, background: 'transparent', color: '#d4d4dc', padding: '6px 8px', fontSize: 22, lineHeight: 1, cursor: 'pointer' }}>
       ↗
     </button>
-    {showOptions && <div style={{ position: 'absolute', right: 0, top: '100%', width: 'min(290px, 78vw)', zIndex: 100, display: 'grid', gap: 10, padding: 14, borderRadius: 12, border: '1px solid #343541', background: '#202129', boxShadow: '0 12px 32px rgba(0,0,0,.45)', fontSize: 13 }}>
-      <span style={{ color: '#a4a4ad' }}>Temps inclus automatiquement{hidePace ? '' : ' · Allure incluse'}</span>
+    {showOptions && <div style={{ position: 'absolute', right: 0, top: '100%', width: 'min(290px, 78vw)', zIndex: 100, display: 'grid', gap: 12, padding: 14, borderRadius: 12, border: '1px solid #343541', background: '#202129', boxShadow: '0 12px 32px rgba(0,0,0,.45)', fontSize: 13 }}>
+      <button type="button" onClick={() => setShowOptions(false)} aria-label="Fermer les options de partage" title="Fermer"
+        style={{ justifySelf: 'end', border: 0, background: 'transparent', color: '#d4d4dc', padding: '0 2px', fontSize: 22, lineHeight: 1, cursor: 'pointer' }}>
+        ×
+      </button>
       <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <input type="checkbox" checked={includeElevation} onChange={event => setIncludeElevation(event.target.checked)} />
         Ajouter le dénivelé
@@ -275,11 +279,11 @@ function ActivityShare({ activity, startMeters, endMeters, hidePace }: { activit
         Ajouter la vitesse
       </label>
       <button type="button" disabled={busy} onClick={() => void copyActivity()}
-        style={{ justifySelf: 'start', border: '1px solid #444550', borderRadius: 8, background: 'transparent', color: '#fff', padding: '8px 12px', fontSize: 13, cursor: busy ? 'wait' : 'pointer' }}>
-        {busy ? 'Copie…' : 'Copier le visuel'}
+        style={{ justifySelf: 'stretch', border: '1px solid #444550', borderRadius: 8, background: 'transparent', color: '#fff', padding: '10px 12px', fontSize: 13, cursor: busy ? 'wait' : 'pointer' }}>
+        {busy ? 'Copie…' : 'Confirmer'}
       </button>
     </div>}
-    {message && <p role="status" style={{ position: 'absolute', right: 0, top: showOptions ? 210 : 35, width: 250, zIndex: 101, background: '#202129', padding: 8, borderRadius: 8, color: '#a4a4ad', fontSize: 12, margin: 0 }}>{message}</p>}
+    {message && <p role="status" style={{ position: 'absolute', right: 0, top: showOptions ? 220 : 35, width: 250, zIndex: 101, background: '#202129', padding: 8, borderRadius: 8, color: '#a4a4ad', fontSize: 12, margin: 0 }}>{message}</p>}
   </div>
 }
 
