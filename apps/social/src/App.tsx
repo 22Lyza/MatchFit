@@ -87,7 +87,7 @@ function ActivityMap({ points = [], follow = false, height = 290 }: { points?: M
     }, () => { setLocating(false); setError('Localisation refusée ou indisponible.') }, { enableHighAccuracy: true, timeout: 12000 })
   }
   return <div style={{ marginBottom: 16 }}>
-    <div ref={element} style={{ height, width: '100%', background: '#252832', borderRadius: 14, overflow: 'hidden', zIndex: 0 }} aria-label="Carte mondiale interactive OpenStreetMap" />
+    <div ref={element} style={{ height, width: '100%', background: '#252832', borderRadius: 14, overflow: 'hidden', position: 'relative', isolation: 'isolate', zIndex: 0 }} aria-label="Carte mondiale interactive OpenStreetMap" />
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginTop: 8 }}>
       <span style={{ color: '#a4a4ad', fontSize: 11 }}>Carte © OpenStreetMap · zoom et déplacement libres</span>
       <button type="button" onClick={locate} disabled={locating} style={{ background: '#24252e', color: '#fff', border: '1px solid #444550', borderRadius: 9, padding: '8px 10px', cursor: 'pointer', fontSize: 12 }}>{locating ? 'Localisation…' : '⌖ Ma position'}</button>
@@ -330,6 +330,8 @@ function App() {
   const [gpsAltitudeSamples, setGpsAltitudeSamples] = useState(0)
   const gpsLastAltitude = useRef<number | null>(null)
   const [gpsError, setGpsError] = useState('')
+  const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null)
+  const [gpsCurrentAltitude, setGpsCurrentAltitude] = useState<number | null>(null)
 
 
   useEffect(() => {
@@ -544,6 +546,8 @@ function App() {
     if (gpsStatus !== 'running' || !navigator.geolocation) return
     const watch = navigator.geolocation.watchPosition(position => {
       const next = { lat: position.coords.latitude, lng: position.coords.longitude }
+      setGpsAccuracy(position.coords.accuracy)
+      setGpsCurrentAltitude(position.coords.altitude !== null && Number.isFinite(position.coords.altitude) ? position.coords.altitude : null)
       if (position.coords.accuracy > 50) return
       // L'altitude GPS est bruitée : ignorer les mesures trop incertaines et les micro-variations.
       const altitude = position.coords.altitude
@@ -595,10 +599,12 @@ function App() {
     setActivitySaving(false)
     if (error) { setActivityError('Enregistrement impossible : ' + error.message); return }
     setActivities(current => [data as Activity, ...current])
-    setActivityMode('list'); setGpsStatus('idle'); setGpsPoints([]); setGpsDistance(0); setGpsSeconds(0); setGpsElevation(0); setGpsAltitudeSamples(0); gpsLastAltitude.current = null
+    setActivityMode('list'); setGpsStatus('idle'); setGpsPoints([]); setGpsDistance(0); setGpsSeconds(0); setGpsElevation(0); setGpsAltitudeSamples(0); setGpsAccuracy(null); setGpsCurrentAltitude(null); gpsLastAltitude.current = null
     setActivityTitle(''); setActivityMinutes(''); setActivityDistance(''); setActivityElevation(''); setActivityNotes('')
   }
 
+  const gpsPace = gpsDistance > 0.01 && gpsSeconds > 0 ? Math.round(gpsSeconds / gpsDistance) : null
+  const gpsPaceLabel = gpsPace !== null ? `${Math.floor(gpsPace / 60)}:${String(gpsPace % 60).padStart(2, '0')}` : '--:--'
   const formatActivityTime = (seconds: number) => `${Math.floor(seconds / 3600) ? Math.floor(seconds / 3600) + 'h ' : ''}${String(Math.floor((seconds % 3600) / 60)).padStart(2, '0')}min ${String(seconds % 60).padStart(2, '0')}s`
   async function publishPost(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -1813,15 +1819,23 @@ function App() {
                 <label>Date<input type="date" style={fieldStyle} value={activityDate} onChange={event => setActivityDate(event.target.value)} required /></label>
                 <label>Durée (minutes)<input type="number" min="1" step="1" style={fieldStyle} value={activityMinutes} onChange={event => setActivityMinutes(event.target.value)} placeholder="45" /></label>
                 <label>Distance (km, facultatif)<input type="number" min="0" step="0.01" style={fieldStyle} value={activityDistance} onChange={event => setActivityDistance(event.target.value)} placeholder="8.5" /></label>
-              </> : <div style={{ background: '#24252e', padding: 18, borderRadius: 14, marginBottom: 16, textAlign: 'center' }}>
-                <ActivityMap points={gpsPoints} follow={gpsStatus === 'running'} height={320} />
-                <p style={{ fontSize: 30, fontWeight: 700, margin: 4 }}>{formatActivityTime(gpsSeconds)}</p>
-                <p>{gpsDistance.toFixed(2)} km · {gpsPoints.length} points GPS</p>
-                <p style={{ color: '#ff8a4b', fontWeight: 700 }}>⛰ Dénivelé positif : {gpsAltitudeSamples >= 2 ? Math.round(gpsElevation) + ' m' : 'En attente de données d’altitude fiables'}</p>
-                <p style={{ color: '#a4a4ad', fontSize: 12 }}>Garde MatchFit ouvert et l'écran actif pendant l'enregistrement. Le GPS nécessite HTTPS ou localhost.</p>
-                {gpsError && <p role="alert" style={{ color: '#ff7777' }}>{gpsError}</p>}
+              </> : <div className="mf-gps-recorder">
+                <div className="mf-gps-map-wrap"><ActivityMap points={gpsPoints} follow={gpsStatus === 'running'} height={290} /></div>
+                <div className="mf-gps-stats" aria-live="polite">
+                  <div className="mf-gps-stat"><span>Distance</span><strong>{gpsDistance.toFixed(2)}</strong><small>km</small></div>
+                  <div className="mf-gps-stat"><span>Durée</span><strong>{String(Math.floor(gpsSeconds / 3600)).padStart(2, '0')}:{String(Math.floor(gpsSeconds / 60) % 60).padStart(2, '0')}:{String(gpsSeconds % 60).padStart(2, '0')}</strong><small>h:min:s</small></div>
+                  <div className="mf-gps-stat"><span>Allure moyenne</span><strong>{gpsPaceLabel}</strong><small>min/km</small></div>
+                  <div className="mf-gps-stat"><span>Dénivelé positif</span><strong>{gpsAltitudeSamples >= 2 ? `+${Math.round(gpsElevation)}` : '—'}</strong><small>m {gpsAltitudeSamples < 2 ? '· altitude insuffisante' : ''}</small></div>
+                </div>
+                <div className="mf-gps-signal">
+                  <span>⌖ GPS : {gpsError ? 'Erreur de localisation' : gpsAccuracy === null ? 'En attente de position' : gpsAccuracy <= 15 ? 'Signal précis' : gpsAccuracy <= 50 ? 'Signal moyen' : 'Signal faible'}</span>
+                  <span>{gpsPoints.length} point{gpsPoints.length > 1 ? 's' : ''} GPS</span>
+                </div>
+                <div className="mf-gps-altitude">Altitude actuelle : <strong>{gpsCurrentAltitude === null ? '—' : `${Math.round(gpsCurrentAltitude)} m`}</strong></div>
+                <p className="mf-gps-help">{gpsStatus === 'idle' ? 'Démarre pour enregistrer ton parcours.' : 'Garde MatchFit ouvert et l’écran actif. Le GPS web nécessite HTTPS ou localhost.'} Le dénivelé n’apparaît qu’avec des mesures d’altitude suffisamment fiables.</p>
+                {gpsError && <p role="alert" className="mf-gps-error">{gpsError}</p>}
                 <button type="button" style={primaryStyle} onClick={() => {
-                  if (gpsStatus === 'idle') { if (!navigator.geolocation) { setGpsError('GPS indisponible sur cet appareil.'); return } setGpsPoints([]); setGpsDistance(0); setGpsSeconds(0); setGpsElevation(0); setGpsAltitudeSamples(0); gpsLastAltitude.current = null }
+                  if (gpsStatus === 'idle') { if (!navigator.geolocation) { setGpsError('GPS indisponible sur cet appareil.'); return } setGpsPoints([]); setGpsDistance(0); setGpsSeconds(0); setGpsElevation(0); setGpsAltitudeSamples(0); setGpsAccuracy(null); setGpsCurrentAltitude(null); gpsLastAltitude.current = null }
                   setGpsStatus(gpsStatus === 'running' ? 'paused' : 'running')
                 }}>{gpsStatus === 'running' ? '⏸ Pause' : gpsStatus === 'paused' ? '▶ Reprendre' : '▶ Démarrer'}</button>
               </div>}
