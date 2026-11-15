@@ -130,7 +130,7 @@ function ActivityMap({ points = [], follow = false, height = 290 }: { points?: M
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors', maxZoom: 19
       }).addTo(instance)
-      line.current = L.polyline([], { color: '#ff6558', weight: 5, opacity: 0.95 }).addTo(instance)
+      line.current = L.polyline([], { color: '#ff8a4b', weight: 5, opacity: 0.95 }).addTo(instance)
       if (latestPoints.current.length) {
         const coords = latestPoints.current.map(point => [point.lat, point.lng] as [number, number])
         line.current.setLatLngs(coords)
@@ -145,7 +145,7 @@ function ActivityMap({ points = [], follow = false, height = 290 }: { points?: M
     const coords = points.map(point => [point.lat, point.lng] as [number, number])
     line.current.setLatLngs(coords)
     const last = coords[coords.length - 1]
-    if (!marker.current) marker.current = window.L.circleMarker(last, { radius: 7, color: '#fff', weight: 2, fillColor: '#ff6558', fillOpacity: 1 }).addTo(map.current)
+    if (!marker.current) marker.current = window.L.circleMarker(last, { radius: 7, color: '#fff', weight: 2, fillColor: '#ff8a4b', fillOpacity: 1 }).addTo(map.current)
     else marker.current.setLatLng(last)
     if (follow) map.current.setView(last, 17)
     else map.current.fitBounds(coords, { padding: [24, 24], maxZoom: 16 })
@@ -254,13 +254,13 @@ function ActivityShare({ activity, startMeters, endMeters, hidePace }: { activit
     }
   }
 
-  return <div style={{ marginTop: 10 }}>
+  return <div style={{ position: 'relative', flexShrink: 0 }}>
     <button type="button" onClick={() => setShowOptions(value => !value)}
       aria-label="Partager l’activité" title="Partager" aria-expanded={showOptions}
       style={{ border: 0, background: 'transparent', color: '#d4d4dc', padding: '6px 8px', fontSize: 22, lineHeight: 1, cursor: 'pointer' }}>
       ↗
     </button>
-    {showOptions && <div style={{ display: 'grid', gap: 10, padding: '10px 0', fontSize: 13 }}>
+    {showOptions && <div style={{ position: 'absolute', right: 0, top: '100%', width: 'min(290px, 78vw)', zIndex: 100, display: 'grid', gap: 10, padding: 14, borderRadius: 12, border: '1px solid #343541', background: '#202129', boxShadow: '0 12px 32px rgba(0,0,0,.45)', fontSize: 13 }}>
       <span style={{ color: '#a4a4ad' }}>Temps inclus automatiquement{hidePace ? '' : ' · Allure incluse'}</span>
       <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <input type="checkbox" checked={includeElevation} onChange={event => setIncludeElevation(event.target.checked)} />
@@ -275,7 +275,7 @@ function ActivityShare({ activity, startMeters, endMeters, hidePace }: { activit
         {busy ? 'Copie…' : 'Copier le visuel'}
       </button>
     </div>}
-    {message && <p role="status" style={{ color: '#a4a4ad', fontSize: 12, margin: '4px 0' }}>{message}</p>}
+    {message && <p role="status" style={{ position: 'absolute', right: 0, top: showOptions ? 210 : 35, width: 250, zIndex: 101, background: '#202129', padding: 8, borderRadius: 8, color: '#a4a4ad', fontSize: 12, margin: 0 }}>{message}</p>}
   </div>
 }
 
@@ -2066,14 +2066,13 @@ function App() {
               {activityLoading && <p>Chargement de tes activités...</p>}
               {!activityLoading && activities.length === 0 && !activityError && <p style={{ color: '#a4a4ad' }}>Aucune activité pour le moment. Enregistre ta première séance !</p>}
               {activities.map(activity => <article key={activity.id} style={{ ...cardStyle, marginTop: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}><strong>{activity.title}</strong><span style={{ color: '#ff8a4b', fontSize: 12 }}>{activity.source === 'gps' ? 'GPS' : 'Manuel'}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}><strong>{activity.title}</strong><ActivityShare activity={activity} startMeters={hideStartMeters} endMeters={hideEndMeters} hidePace={hidePace} /></div>
                 <p style={{ color: '#a4a4ad', fontSize: 13 }}>{activity.sport} · {new Date(activity.started_at).toLocaleDateString('fr-CH')}</p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, fontSize: 14 }}><span>⏱ {formatActivityTime(activity.duration_seconds)}</span>{activity.distance_km !== null && <span>↗ {activity.distance_km.toFixed(2)} km</span>}{activity.elevation_m !== null && <span>⛰ {activity.elevation_m} m</span>}</div>
                 {!hidePace && activity.distance_km !== null && activity.distance_km > 0 && <p style={{ fontSize: 12, color: '#a4a4ad' }}>Allure moyenne : {Math.floor(activity.duration_seconds / 60 / activity.distance_km)}:{String(Math.round(activity.duration_seconds / activity.distance_km) % 60).padStart(2, '0')} /km</p>}
                 {activity.notes && <p style={{ fontSize: 13 }}>{activity.notes}</p>}
                 {activity.source === 'gps' && <p style={{ color: '#a4a4ad', fontSize: 12 }}>Parcours enregistré : {activity.route?.length ?? 0} points GPS</p>}
                 {activity.source === 'gps' && activity.route && activity.route.length > 0 && (privacyRoute(activity.route, hideStartMeters, hideEndMeters).length ? <ActivityMap points={privacyRoute(activity.route, hideStartMeters, hideEndMeters)} height={220} /> : <p style={{ color: '#a4a4ad', fontSize: 12 }}>Parcours masqué pour protéger les lieux de départ et d’arrivée.</p>)}
-                <ActivityShare activity={activity} startMeters={hideStartMeters} endMeters={hideEndMeters} hidePace={hidePace} />
               </article>)}
               <div style={{ marginTop: 26 }}>
                 <h3 style={{ marginBottom: 5 }}>Activités de démonstration</h3>
