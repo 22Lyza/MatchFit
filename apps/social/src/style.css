@@ -560,3 +560,19 @@ input, textarea, select {
 .bottom-nav button span { font-size: 22px; }
 /* Réserve la place nécessaire pour que le contenu ne passe pas sous la navigation. */
 .app { padding-bottom: calc(66px + var(--mf-safe-bottom)); }
+
+
+/* MatchFit Social — panneau GPS compact et contenu strictement confiné */
+.mf-gps-recorder { background: #24252e; padding: 14px; border-radius: 14px; margin-bottom: 16px; min-width: 0; max-width: 100%; overflow: hidden; isolation: isolate; }
+.mf-gps-map-wrap { position: relative; isolation: isolate; overflow: hidden; border-radius: 14px; max-width: 100%; }
+.mf-gps-map-wrap .leaflet-container { max-width: 100%; position: relative; z-index: 0; }
+.mf-gps-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 12px 0; }
+.mf-gps-stat { background: #191a22; border: 1px solid #383943; border-radius: 12px; min-width: 0; padding: 13px 7px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 3px; }
+.mf-gps-stat span { font-size: 11px; color: #b6b6c0; }
+.mf-gps-stat strong { font-size: clamp(19px, 5vw, 27px); font-weight: 800; color: #fff; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.mf-gps-stat small { color: #b6b6c0; font-size: 10px; }
+.mf-gps-signal { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 11px; color: #dddde3; padding: 7px 2px; }
+.mf-gps-altitude { border-radius: 10px; background: #1b1c24; padding: 11px; text-align: center; color: #b6b6c0; font-size: 12px; }
+.mf-gps-altitude strong { color: #fff; }
+.mf-gps-help { color: #a4a4ad; font-size: 11px; line-height: 1.5; text-align: center; margin: 12px 0; overflow-wrap: anywhere; }
+.mf-gps-error { color: #ff7777; font-size: 12px; overflow-wrap: anywhere; }
