@@ -550,13 +550,13 @@ input, textarea, select {
   .app { max-width: 520px; }
 }
 
-/* Navigation compacte : les onglets restent au-dessus du geste d’accueil iOS. */
+/* Navigation légèrement agrandie : +8 px, sans espace superflu sous les onglets. */
 .bottom-nav {
-  min-height: calc(48px + var(--mf-safe-bottom));
-  padding-top: 2px;
-  padding-bottom: calc(2px + var(--mf-safe-bottom));
+  min-height: calc(56px + var(--mf-safe-bottom));
+  padding-top: 4px;
+  padding-bottom: calc(4px + var(--mf-safe-bottom));
 }
-.bottom-nav button { padding: 2px 0; gap: 2px; }
-.bottom-nav button span { font-size: 20px; }
-/* Réserve la place de la barre sans créer un grand espace vide. */
-.app { padding-bottom: calc(58px + var(--mf-safe-bottom)); }
+.bottom-nav button { padding: 4px 0; gap: 3px; }
+.bottom-nav button span { font-size: 22px; }
+/* Réserve la place nécessaire pour que le contenu ne passe pas sous la navigation. */
+.app { padding-bottom: calc(66px + var(--mf-safe-bottom)); }
