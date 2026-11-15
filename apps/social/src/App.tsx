@@ -330,6 +330,7 @@ function App() {
   const [gpsAltitudeSamples, setGpsAltitudeSamples] = useState(0)
   const gpsLastAltitude = useRef<number | null>(null)
   const [gpsError, setGpsError] = useState('')
+  const [gpsPreviewPosition, setGpsPreviewPosition] = useState<MapPoint | null>(null)
   const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null)
   const [gpsCurrentAltitude, setGpsCurrentAltitude] = useState<number | null>(null)
 
@@ -535,6 +536,25 @@ function App() {
     void fetchActivities()
     return () => { cancelled = true }
   }, [session?.user.id, page])
+
+  // Obtenir la position dès l'ouverture de l'enregistreur, après le choix du sport.
+  // Cette position sert uniquement à centrer la carte : aucun point n'est enregistré
+  // et aucun kilomètre n'est comptabilisé avant le bouton Démarrer.
+  useEffect(() => {
+    if (activityMode !== 'gps' || !navigator.geolocation) return
+    let cancelled = false
+    navigator.geolocation.getCurrentPosition(position => {
+      if (cancelled) return
+      setGpsPreviewPosition({ lat: position.coords.latitude, lng: position.coords.longitude })
+      setGpsPreviewPosition(next)
+      setGpsAccuracy(position.coords.accuracy)
+      setGpsCurrentAltitude(position.coords.altitude !== null && Number.isFinite(position.coords.altitude) ? position.coords.altitude : null)
+      setGpsError('')
+    }, error => {
+      if (!cancelled) setGpsError('Localisation : ' + error.message)
+    }, { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 })
+    return () => { cancelled = true }
+  }, [activityMode])
 
   useEffect(() => {
     if (gpsStatus !== 'running') return
@@ -1802,7 +1822,7 @@ function App() {
                   ['🚶', 'Marche'], ['🥾', 'Randonnée'], ['🏋️', 'Musculation'],
                   ['🏊', 'Natation'], ['💪', 'Fitness'], ['✨', 'Autre']
                 ].map(([emoji, sport]) => (
-                  <button key={sport} type="button" style={{ ...cardStyle, margin: 0, minHeight: 94, padding: 12, cursor: 'pointer', color: '#fff', textAlign: 'center', background: '#24252e', border: '1px solid #3d3e49' }} onClick={() => { setActivitySport(sport); setActivityTitle(''); setActivityError(''); setGpsError(''); setActivityMode('gps') }}>
+                  <button key={sport} type="button" style={{ ...cardStyle, margin: 0, minHeight: 94, padding: 12, cursor: 'pointer', color: '#fff', textAlign: 'center', background: '#24252e', border: '1px solid #3d3e49' }} onClick={() => { setActivitySport(sport); setActivityTitle(''); setActivityError(''); setGpsError(''); setGpsPreviewPosition(null); setActivityMode('gps') }}>
                     <span style={{ display: 'block', fontSize: 27, marginBottom: 8 }}>{emoji}</span>
                     <span style={{ fontWeight: 700, fontSize: 13 }}>{sport}</span>
                   </button>
@@ -1820,16 +1840,12 @@ function App() {
                 <label>Durée (minutes)<input type="number" min="1" step="1" style={fieldStyle} value={activityMinutes} onChange={event => setActivityMinutes(event.target.value)} placeholder="45" /></label>
                 <label>Distance (km, facultatif)<input type="number" min="0" step="0.01" style={fieldStyle} value={activityDistance} onChange={event => setActivityDistance(event.target.value)} placeholder="8.5" /></label>
               </> : <div className="mf-gps-recorder">
-                <div className="mf-gps-map-wrap"><ActivityMap points={gpsPoints} follow={gpsStatus === 'running'} height={290} /></div>
+                <div className="mf-gps-map-wrap"><ActivityMap points={gpsPoints.length ? gpsPoints : gpsPreviewPosition ? [gpsPreviewPosition] : []} follow={gpsStatus === 'running' || gpsPoints.length === 0} height={290} /></div>
                 <div className="mf-gps-stats" aria-live="polite">
                   <div className="mf-gps-stat"><span>Distance</span><strong>{gpsDistance.toFixed(2)}</strong><small>km</small></div>
                   <div className="mf-gps-stat"><span>Durée</span><strong>{String(Math.floor(gpsSeconds / 3600)).padStart(2, '0')}:{String(Math.floor(gpsSeconds / 60) % 60).padStart(2, '0')}:{String(gpsSeconds % 60).padStart(2, '0')}</strong><small>h:min:s</small></div>
                   <div className="mf-gps-stat"><span>Allure moyenne</span><strong>{gpsPaceLabel}</strong><small>min/km</small></div>
                   <div className="mf-gps-stat"><span>Dénivelé positif</span><strong>{gpsAltitudeSamples >= 2 ? `+${Math.round(gpsElevation)}` : '—'}</strong><small>m {gpsAltitudeSamples < 2 ? '· altitude insuffisante' : ''}</small></div>
-                </div>
-                <div className="mf-gps-signal">
-                  <span>⌖ GPS : {gpsError ? 'Erreur de localisation' : gpsAccuracy === null ? 'En attente de position' : gpsAccuracy <= 15 ? 'Signal précis' : gpsAccuracy <= 50 ? 'Signal moyen' : 'Signal faible'}</span>
-                  <span>{gpsPoints.length} point{gpsPoints.length > 1 ? 's' : ''} GPS</span>
                 </div>
                 <div className="mf-gps-altitude">Altitude actuelle : <strong>{gpsCurrentAltitude === null ? '—' : `${Math.round(gpsCurrentAltitude)} m`}</strong></div>
                 <p className="mf-gps-help">{gpsStatus === 'idle' ? 'Démarre pour enregistrer ton parcours.' : 'Garde MatchFit ouvert et l’écran actif. Le GPS web nécessite HTTPS ou localhost.'} Le dénivelé n’apparaît qu’avec des mesures d’altitude suffisamment fiables.</p>
