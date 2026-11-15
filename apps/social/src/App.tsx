@@ -1486,7 +1486,7 @@ function App() {
       )}
 
       {page === 'decouvrir' && (
-        <section className="placeholder-page">
+        <section className="placeholder-page" style={{ marginTop: -28 }}>
 
           <label htmlFor="member-search" style={{ display: 'block', fontSize: 13, marginTop: 15 }}>Rechercher un sportif</label>
           <input id="member-search" type="search" autoFocus value={discoverSearch}
