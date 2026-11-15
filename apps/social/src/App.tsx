@@ -15,6 +15,7 @@ function ModernHeart({ filled, size = 26 }: { filled: boolean; size?: number }) 
 }
 
 type Page = 'accueil' | 'decouvrir' | 'activites' | 'messages' | 'profil' | 'reglages'
+type Activity = { id: string; user_id: string; sport: string; title: string; started_at: string; duration_seconds: number; distance_km: number | null; elevation_m: number | null; notes: string; source: 'manual' | 'gps'; route: { lat: number; lng: number }[] | null; created_at: string }
 type CreationType = 'story' | 'publication'
 type AuthMode = 'connexion' | 'inscription' | 'oubli'
 
@@ -217,6 +218,24 @@ function App() {
   const [followBusy, setFollowBusy] = useState(false)
   const [followerCount, setFollowerCount] = useState(0)
   const [followingCount, setFollowingCount] = useState(0)
+  const [activities, setActivities] = useState<Activity[]>([])
+  const [activityLoading, setActivityLoading] = useState(false)
+  const [activityError, setActivityError] = useState('')
+  const [activityMode, setActivityMode] = useState<'list' | 'manual' | 'gps'>('list')
+  const [activitySport, setActivitySport] = useState('Course à pied')
+  const [activityTitle, setActivityTitle] = useState('')
+  const [activityDate, setActivityDate] = useState(new Date().toISOString().slice(0, 10))
+  const [activityMinutes, setActivityMinutes] = useState('')
+  const [activityDistance, setActivityDistance] = useState('')
+  const [activityElevation, setActivityElevation] = useState('')
+  const [activityNotes, setActivityNotes] = useState('')
+  const [activitySaving, setActivitySaving] = useState(false)
+  const [gpsStatus, setGpsStatus] = useState<'idle' | 'running' | 'paused'>('idle')
+  const [gpsPoints, setGpsPoints] = useState<{ lat: number; lng: number }[]>([])
+  const [gpsSeconds, setGpsSeconds] = useState(0)
+  const [gpsDistance, setGpsDistance] = useState(0)
+  const [gpsError, setGpsError] = useState('')
+
 
   useEffect(() => {
     let active = true
@@ -403,6 +422,72 @@ function App() {
     post.user_id !== session?.user.id && privacyByUser[post.user_id] === false
   )
 
+
+  useEffect(() => {
+    if (!session?.user.id || page !== 'activites') return
+    let cancelled = false
+    async function fetchActivities() {
+      setActivityLoading(true)
+      const { data, error } = await supabase.from('social_activities').select('*').eq('user_id', session!.user.id).order('started_at', { ascending: false }).limit(100)
+      if (!cancelled) {
+        setActivities((data ?? []) as Activity[])
+        setActivityError(error ? 'Historique indisponible : ' + error.message : '')
+        setActivityLoading(false)
+      }
+    }
+    void fetchActivities()
+    return () => { cancelled = true }
+  }, [session?.user.id, page])
+
+  useEffect(() => {
+    if (gpsStatus !== 'running') return
+    const interval = window.setInterval(() => setGpsSeconds(value => value + 1), 1000)
+    return () => window.clearInterval(interval)
+  }, [gpsStatus])
+
+  useEffect(() => {
+    if (gpsStatus !== 'running' || !navigator.geolocation) return
+    const watch = navigator.geolocation.watchPosition(position => {
+      const next = { lat: position.coords.latitude, lng: position.coords.longitude }
+      if (position.coords.accuracy > 50) return
+      setGpsPoints(previous => {
+        if (previous.length) {
+          const last = previous[previous.length - 1]
+          const rad = Math.PI / 180
+          const dLat = (next.lat - last.lat) * rad
+          const dLng = (next.lng - last.lng) * rad
+          const a = Math.sin(dLat / 2) ** 2 + Math.cos(last.lat * rad) * Math.cos(next.lat * rad) * Math.sin(dLng / 2) ** 2
+          const meters = 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+          if (meters < 5) return previous
+          if (meters > 150) return previous
+          setGpsDistance(value => value + meters / 1000)
+        }
+        return [...previous, next]
+      })
+      setGpsError('')
+    }, error => setGpsError('Localisation : ' + error.message), { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 })
+    return () => navigator.geolocation.clearWatch(watch)
+  }, [gpsStatus])
+
+  async function saveActivity(source: 'manual' | 'gps') {
+    if (!session || activitySaving) return
+    const seconds = source === 'gps' ? gpsSeconds : Math.round(Number(activityMinutes) * 60)
+    const distance = source === 'gps' ? gpsDistance : activityDistance.trim() ? Number(activityDistance.replace(',', '.')) : null
+    const elevation = activityElevation.trim() ? Number(activityElevation.replace(',', '.')) : null
+    if (!Number.isFinite(seconds) || seconds <= 0 || (distance !== null && (!Number.isFinite(distance) || distance < 0)) || (elevation !== null && (!Number.isFinite(elevation) || elevation < 0))) {
+      setActivityError('Vérifie la durée, la distance et le dénivelé.'); return
+    }
+    setActivitySaving(true); setActivityError('')
+    const payload = { user_id: session.user.id, sport: activitySport, title: activityTitle.trim() || activitySport, started_at: source === 'gps' ? new Date().toISOString() : new Date(activityDate + 'T12:00:00').toISOString(), duration_seconds: seconds, distance_km: distance, elevation_m: elevation, notes: activityNotes.trim(), source, route: source === 'gps' ? gpsPoints : null }
+    const { data, error } = await supabase.from('social_activities').insert(payload).select('*').single()
+    setActivitySaving(false)
+    if (error) { setActivityError('Enregistrement impossible : ' + error.message); return }
+    setActivities(current => [data as Activity, ...current])
+    setActivityMode('list'); setGpsStatus('idle'); setGpsPoints([]); setGpsDistance(0); setGpsSeconds(0)
+    setActivityTitle(''); setActivityMinutes(''); setActivityDistance(''); setActivityElevation(''); setActivityNotes('')
+  }
+
+  const formatActivityTime = (seconds: number) => `${Math.floor(seconds / 3600) ? Math.floor(seconds / 3600) + 'h ' : ''}${String(Math.floor((seconds % 3600) / 60)).padStart(2, '0')}min ${String(seconds % 60).padStart(2, '0')}s`
   async function publishPost(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!session || !postFile || publishBusy) return
@@ -1552,12 +1637,51 @@ function App() {
       )}
 
       {page === 'activites' && (
-        <section className="placeholder-page">
+        <section className="placeholder-page" style={{ paddingBottom: 110 }}>
           <h2>Mes activités</h2>
-          <p>
-            Retrouve tes courses, entraînements
-            et performances sportives.
-          </p>
+          {activityMode === 'list' ? (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 22 }}>
+                <button type="button" style={primaryStyle} onClick={() => { setActivityError(''); setActivityMode('manual') }}>＋ Ajouter une activité</button>
+                <button type="button" style={{ ...primaryStyle, background: '#24252e', border: '1px solid #444550' }} onClick={() => { setActivityError(''); setActivityMode('gps') }}>⌖ Enregistrer GPS</button>
+              </div>
+              {activityLoading && <p>Chargement de tes activités...</p>}
+              {!activityLoading && activities.length === 0 && !activityError && <p style={{ color: '#a4a4ad' }}>Aucune activité pour le moment. Enregistre ta première séance !</p>}
+              {activities.map(activity => <article key={activity.id} style={{ ...cardStyle, marginTop: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}><strong>{activity.title}</strong><span style={{ color: '#ff8a4b', fontSize: 12 }}>{activity.source === 'gps' ? 'GPS' : 'Manuel'}</span></div>
+                <p style={{ color: '#a4a4ad', fontSize: 13 }}>{activity.sport} · {new Date(activity.started_at).toLocaleDateString('fr-CH')}</p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, fontSize: 14 }}><span>⏱ {formatActivityTime(activity.duration_seconds)}</span>{activity.distance_km !== null && <span>↗ {activity.distance_km.toFixed(2)} km</span>}{activity.elevation_m !== null && <span>⛰ {activity.elevation_m} m</span>}</div>
+                {activity.distance_km !== null && activity.distance_km > 0 && <p style={{ fontSize: 12, color: '#a4a4ad' }}>Allure moyenne : {Math.floor(activity.duration_seconds / 60 / activity.distance_km)}:{String(Math.round(activity.duration_seconds / activity.distance_km) % 60).padStart(2, '0')} /km</p>}
+                {activity.notes && <p style={{ fontSize: 13 }}>{activity.notes}</p>}
+                {activity.source === 'gps' && <p style={{ color: '#a4a4ad', fontSize: 12 }}>Parcours enregistré : {activity.route?.length ?? 0} points GPS</p>}
+              </article>)}
+            </>
+          ) : (
+            <div style={cardStyle}>
+              <button type="button" style={{ ...linkStyle, paddingLeft: 0 }} onClick={() => { if (gpsStatus === 'running') { setActivityError('Mets le GPS en pause avant de quitter.'); return } setActivityMode('list') }}>← Retour aux activités</button>
+              <h3>{activityMode === 'manual' ? 'Ajouter une activité' : 'Enregistrement GPS'}</h3>
+              <label>Sport<select style={fieldStyle} value={activitySport} onChange={event => setActivitySport(event.target.value)}>{['Course à pied', 'Trail', 'Marche', 'Randonnée', 'Vélo', 'Musculation', 'Natation', 'Fitness', 'Autre'].map(sport => <option key={sport}>{sport}</option>)}</select></label>
+              <label>Titre<input style={fieldStyle} value={activityTitle} onChange={event => setActivityTitle(event.target.value)} placeholder="Ma séance du jour" maxLength={100} /></label>
+              {activityMode === 'manual' ? <>
+                <label>Date<input type="date" style={fieldStyle} value={activityDate} onChange={event => setActivityDate(event.target.value)} required /></label>
+                <label>Durée (minutes)<input type="number" min="1" step="1" style={fieldStyle} value={activityMinutes} onChange={event => setActivityMinutes(event.target.value)} placeholder="45" /></label>
+                <label>Distance (km, facultatif)<input type="number" min="0" step="0.01" style={fieldStyle} value={activityDistance} onChange={event => setActivityDistance(event.target.value)} placeholder="8.5" /></label>
+              </> : <div style={{ background: '#24252e', padding: 18, borderRadius: 14, marginBottom: 16, textAlign: 'center' }}>
+                <p style={{ fontSize: 30, fontWeight: 700, margin: 4 }}>{formatActivityTime(gpsSeconds)}</p>
+                <p>{gpsDistance.toFixed(2)} km · {gpsPoints.length} points GPS</p>
+                <p style={{ color: '#a4a4ad', fontSize: 12 }}>Garde MatchFit ouvert et l'écran actif pendant l'enregistrement. Le GPS nécessite HTTPS ou localhost.</p>
+                {gpsError && <p role="alert" style={{ color: '#ff7777' }}>{gpsError}</p>}
+                <button type="button" style={primaryStyle} onClick={() => {
+                  if (gpsStatus === 'idle') { if (!navigator.geolocation) { setGpsError('GPS indisponible sur cet appareil.'); return } setGpsPoints([]); setGpsDistance(0); setGpsSeconds(0) }
+                  setGpsStatus(gpsStatus === 'running' ? 'paused' : 'running')
+                }}>{gpsStatus === 'running' ? '⏸ Pause' : gpsStatus === 'paused' ? '▶ Reprendre' : '▶ Démarrer'}</button>
+              </div>}
+              <label>Dénivelé positif (m, facultatif)<input type="number" min="0" step="1" style={fieldStyle} value={activityElevation} onChange={event => setActivityElevation(event.target.value)} /></label>
+              <label>Notes<textarea style={{ ...fieldStyle, minHeight: 85 }} value={activityNotes} onChange={event => setActivityNotes(event.target.value)} placeholder="Comment s'est passée la séance ?" /></label>
+              <button type="button" style={primaryStyle} disabled={activitySaving || (activityMode === 'gps' && (gpsStatus === 'running' || gpsSeconds === 0))} onClick={() => void saveActivity(activityMode)}>{activitySaving ? 'Enregistrement...' : 'Enregistrer mon activité'}</button>
+            </div>
+          )}
+          {activityError && <p role="alert" style={{ color: '#ff7777' }}>{activityError}</p>}
         </section>
       )}
 
