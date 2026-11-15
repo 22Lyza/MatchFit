@@ -253,7 +253,6 @@ function ActivityShare({ activity, onClose, startMeters, endMeters }: { activity
       <h3 style={{ margin: 0 }}>Partager mon activité</h3>
       <button type="button" onClick={onClose} style={linkStyle}>✕ Fermer</button>
     </div>
-    <p style={{ fontSize: 13, color: '#aaa' }}>Choisis ta photo : distance, durée, dénivelé et tracé visible seront superposés. Les zones masquées au départ et à l’arrivée ne figureront pas sur l’image.</p>
     <label style={{ display: 'block', fontSize: 14 }}>Photo de fond
       <input type="file" accept="image/jpeg,image/png,image/webp" onChange={e => setPhoto(e.target.files?.[0] ?? null)} style={{ ...fieldStyle, padding: 10 }} />
     </label>
@@ -264,8 +263,6 @@ function ActivityShare({ activity, onClose, startMeters, endMeters }: { activity
     </div>
     <button type="button" disabled={busy} onClick={() => void exportImage()} style={primaryStyle}>{busy ? 'Préparation...' : '↗ Partager sur Instagram / Enregistrer l’image'}</button>
     {error && <p role="alert" style={{ color: '#ff7777' }}>{error}</p>}
-    <p style={{ fontSize: 12, color: '#aaa' }}>Départ masqué : {startMeters} m · Arrivée masquée : {endMeters} m. La distance totale reste inchangée et l’allure n’est pas affichée sur l’image.</p>
-    <p style={{ fontSize: 12, color: '#aaa' }}>Sur iPhone, choisis Instagram dans la feuille de partage si proposé ; sinon enregistre l’image puis ouvre Instagram.</p>
   </div>
 }
 
@@ -2050,10 +2047,9 @@ function App() {
                 <button type="button" style={primaryStyle} onClick={() => { setActivityError(''); setActivityMode('choose') }}>＋ Enregistrer une activité</button>
               </div>
               <div style={{ ...cardStyle, marginTop: 8, marginBottom: 16, padding: 14 }}>
-                <strong>Confidentialité et affichage</strong><p style={{ color: '#a4a4ad', fontSize: 11, marginTop: 6 }}>Carte OpenStreetMap : routes, petits chemins et toilettes publiques selon les données locales et le niveau de zoom.</p>
+                <strong>Confidentialité et affichage</strong>
                 <PrivacyDistanceControls startMeters={hideStartMeters} endMeters={hideEndMeters} setStartMeters={setHideStartMeters} setEndMeters={setHideEndMeters} />
                 <label style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 10, fontSize: 13 }}><input type="checkbox" checked={hidePace} onChange={event => setHidePace(event.target.checked)} /> Masquer mon allure moyenne</label>
-                <p style={{ color: '#a4a4ad', fontSize: 11, marginBottom: 0 }}>Ces réglages changent l'affichage uniquement. La distance totale reste intacte. Le parcours GPS complet reste enregistré dans ton compte.</p>
               </div>
               {activityLoading && <p>Chargement de tes activités...</p>}
               {!activityLoading && activities.length === 0 && !activityError && <p style={{ color: '#a4a4ad' }}>Aucune activité pour le moment. Enregistre ta première séance !</p>}
@@ -2065,7 +2061,7 @@ function App() {
                 {activity.notes && <p style={{ fontSize: 13 }}>{activity.notes}</p>}
                 {activity.source === 'gps' && <p style={{ color: '#a4a4ad', fontSize: 12 }}>Parcours enregistré : {activity.route?.length ?? 0} points GPS</p>}
                 {activity.source === 'gps' && activity.route && activity.route.length > 0 && (privacyRoute(activity.route, hideStartMeters, hideEndMeters).length ? <ActivityMap points={privacyRoute(activity.route, hideStartMeters, hideEndMeters)} height={220} /> : <p style={{ color: '#a4a4ad', fontSize: 12 }}>Parcours masqué pour protéger les lieux de départ et d’arrivée.</p>)}
-                <button type="button" onClick={() => setShareActivity(current => current?.id === activity.id ? null : activity)} style={{ ...primaryStyle, marginTop: 12 }}>↗ Partager mon activité</button>
+                <button type="button" onClick={() => setShareActivity(current => current?.id === activity.id ? null : activity)} style={{ ...primaryStyle, marginTop: 12, padding: '7px 12px', fontSize: 12, width: 'auto', display: 'inline-flex', alignItems: 'center' }}>↗ Partager</button>
                 {shareActivity?.id === activity.id && <ActivityShare activity={activity} startMeters={hideStartMeters} endMeters={hideEndMeters} onClose={() => setShareActivity(null)} />}
               </article>)}
               <div style={{ marginTop: 26 }}>
