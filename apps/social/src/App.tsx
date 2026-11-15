@@ -1,5 +1,5 @@
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './supabase'
@@ -234,6 +234,9 @@ function App() {
   const [gpsPoints, setGpsPoints] = useState<{ lat: number; lng: number }[]>([])
   const [gpsSeconds, setGpsSeconds] = useState(0)
   const [gpsDistance, setGpsDistance] = useState(0)
+  const [gpsElevation, setGpsElevation] = useState(0)
+  const [gpsAltitudeSamples, setGpsAltitudeSamples] = useState(0)
+  const gpsLastAltitude = useRef<number | null>(null)
   const [gpsError, setGpsError] = useState('')
 
 
@@ -450,6 +453,23 @@ function App() {
     const watch = navigator.geolocation.watchPosition(position => {
       const next = { lat: position.coords.latitude, lng: position.coords.longitude }
       if (position.coords.accuracy > 50) return
+      // L'altitude GPS est bruitée : ignorer les mesures trop incertaines et les micro-variations.
+      const altitude = position.coords.altitude
+      const altitudeAccuracy = position.coords.altitudeAccuracy
+      if (altitude !== null && Number.isFinite(altitude) && altitudeAccuracy !== null && altitudeAccuracy <= 15) {
+        const previousAltitude = gpsLastAltitude.current
+        if (previousAltitude === null) {
+          gpsLastAltitude.current = altitude
+          setGpsAltitudeSamples(count => count + 1)
+        } else {
+          const difference = altitude - previousAltitude
+          if (Math.abs(difference) >= 3 && Math.abs(difference) <= 30) {
+            if (difference > 0) setGpsElevation(value => value + difference)
+            gpsLastAltitude.current = altitude
+            setGpsAltitudeSamples(count => count + 1)
+          }
+        }
+      }
       setGpsPoints(previous => {
         if (previous.length) {
           const last = previous[previous.length - 1]
@@ -473,7 +493,7 @@ function App() {
     if (!session || activitySaving) return
     const seconds = source === 'gps' ? gpsSeconds : Math.round(Number(activityMinutes) * 60)
     const distance = source === 'gps' ? gpsDistance : activityDistance.trim() ? Number(activityDistance.replace(',', '.')) : null
-    const elevation = activityElevation.trim() ? Number(activityElevation.replace(',', '.')) : null
+    const elevation = source === 'gps' ? (gpsAltitudeSamples >= 2 ? Math.round(gpsElevation) : null) : activityElevation.trim() ? Number(activityElevation.replace(',', '.')) : null
     if (!Number.isFinite(seconds) || seconds <= 0 || (distance !== null && (!Number.isFinite(distance) || distance < 0)) || (elevation !== null && (!Number.isFinite(elevation) || elevation < 0))) {
       setActivityError('Vérifie la durée, la distance et le dénivelé.'); return
     }
@@ -483,7 +503,7 @@ function App() {
     setActivitySaving(false)
     if (error) { setActivityError('Enregistrement impossible : ' + error.message); return }
     setActivities(current => [data as Activity, ...current])
-    setActivityMode('list'); setGpsStatus('idle'); setGpsPoints([]); setGpsDistance(0); setGpsSeconds(0)
+    setActivityMode('list'); setGpsStatus('idle'); setGpsPoints([]); setGpsDistance(0); setGpsSeconds(0); setGpsElevation(0); setGpsAltitudeSamples(0); gpsLastAltitude.current = null
     setActivityTitle(''); setActivityMinutes(''); setActivityDistance(''); setActivityElevation(''); setActivityNotes('')
   }
 
@@ -1655,6 +1675,24 @@ function App() {
                 {activity.notes && <p style={{ fontSize: 13 }}>{activity.notes}</p>}
                 {activity.source === 'gps' && <p style={{ color: '#a4a4ad', fontSize: 12 }}>Parcours enregistré : {activity.route?.length ?? 0} points GPS</p>}
               </article>)}
+              <div style={{ marginTop: 26 }}>
+                <h3 style={{ marginBottom: 5 }}>Activités de démonstration</h3>
+                <p style={{ color: '#a4a4ad', fontSize: 12, marginTop: 0 }}>Exemples fictifs pour découvrir le journal sportif. Rien n'est ajouté à ton compte.</p>
+                {[
+                  { sport: '🏃‍♀️ Course à pied', title: 'Running du matin', duration: 3120, distance: 8.42, elevation: 85, author: 'Emma' },
+                  { sport: '⛰️ Trail', title: 'Sortie en montagne', duration: 7260, distance: 16.8, elevation: 780, author: 'Noah' },
+                  { sport: '🚴 Vélo', title: 'Boucle du dimanche', duration: 5400, distance: 34.6, elevation: 420, author: 'Lucas' },
+                  { sport: '🥾 Randonnée', title: 'Randonnée panoramique', duration: 9600, distance: 11.2, elevation: 610, author: 'Clara' }
+                ].map(demo => {
+                  const pace = demo.duration / demo.distance
+                  return <article key={demo.title} style={{ ...cardStyle, marginTop: 12, borderColor: '#3d3e49' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}><strong>{demo.title}</strong><span style={{ color: '#ff8a4b', fontSize: 11, fontWeight: 700 }}>DÉMO</span></div>
+                    <p style={{ color: '#a4a4ad', fontSize: 13 }}>{demo.author} · {demo.sport}</p>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, fontSize: 14 }}><span>↗ {demo.distance.toFixed(2)} km</span><span>⏱ {formatActivityTime(demo.duration)}</span><span>⛰ +{demo.elevation} m</span></div>
+                    {demo.sport.includes('Course') || demo.sport.includes('Trail') ? <p style={{ fontSize: 12, color: '#a4a4ad' }}>Allure moyenne : {Math.floor(pace / 60)}:{String(Math.round(pace % 60)).padStart(2, '0')} /km</p> : null}
+                  </article>
+                })}
+              </div>
             </>
           ) : (
             <div style={cardStyle}>
@@ -1669,14 +1707,15 @@ function App() {
               </> : <div style={{ background: '#24252e', padding: 18, borderRadius: 14, marginBottom: 16, textAlign: 'center' }}>
                 <p style={{ fontSize: 30, fontWeight: 700, margin: 4 }}>{formatActivityTime(gpsSeconds)}</p>
                 <p>{gpsDistance.toFixed(2)} km · {gpsPoints.length} points GPS</p>
+                <p style={{ color: '#ff8a4b', fontWeight: 700 }}>⛰ Dénivelé positif : {gpsAltitudeSamples >= 2 ? Math.round(gpsElevation) + ' m' : 'En attente de données d’altitude fiables'}</p>
                 <p style={{ color: '#a4a4ad', fontSize: 12 }}>Garde MatchFit ouvert et l'écran actif pendant l'enregistrement. Le GPS nécessite HTTPS ou localhost.</p>
                 {gpsError && <p role="alert" style={{ color: '#ff7777' }}>{gpsError}</p>}
                 <button type="button" style={primaryStyle} onClick={() => {
-                  if (gpsStatus === 'idle') { if (!navigator.geolocation) { setGpsError('GPS indisponible sur cet appareil.'); return } setGpsPoints([]); setGpsDistance(0); setGpsSeconds(0) }
+                  if (gpsStatus === 'idle') { if (!navigator.geolocation) { setGpsError('GPS indisponible sur cet appareil.'); return } setGpsPoints([]); setGpsDistance(0); setGpsSeconds(0); setGpsElevation(0); setGpsAltitudeSamples(0); gpsLastAltitude.current = null }
                   setGpsStatus(gpsStatus === 'running' ? 'paused' : 'running')
                 }}>{gpsStatus === 'running' ? '⏸ Pause' : gpsStatus === 'paused' ? '▶ Reprendre' : '▶ Démarrer'}</button>
               </div>}
-              <label>Dénivelé positif (m, facultatif)<input type="number" min="0" step="1" style={fieldStyle} value={activityElevation} onChange={event => setActivityElevation(event.target.value)} /></label>
+              {activityMode === 'manual' && <label>Dénivelé positif (m, facultatif)<input type="number" min="0" step="1" style={fieldStyle} value={activityElevation} onChange={event => setActivityElevation(event.target.value)} /></label>}
               <label>Notes<textarea style={{ ...fieldStyle, minHeight: 85 }} value={activityNotes} onChange={event => setActivityNotes(event.target.value)} placeholder="Comment s'est passée la séance ?" /></label>
               <button type="button" style={primaryStyle} disabled={activitySaving || (activityMode === 'gps' && (gpsStatus === 'running' || gpsSeconds === 0))} onClick={() => void saveActivity(activityMode)}>{activitySaving ? 'Enregistrement...' : 'Enregistrer mon activité'}</button>
             </div>
