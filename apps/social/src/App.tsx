@@ -54,13 +54,23 @@ function distanceBetweenMeters(a: MapPoint, b: MapPoint): number {
 function privacyRoute(points: MapPoint[], startMeters: number, endMeters: number, live = false): MapPoint[] {
   if (startMeters === 0 && endMeters === 0) return points
   if (points.length < 2) return []
-  const start = points[0]
-  const end = points[points.length - 1]
-  // Les deux distances sont indépendantes. La trace complète et les statistiques restent inchangées.
-  if (!live) return points.filter(point =>
-    (startMeters === 0 || distanceBetweenMeters(point, start) > startMeters) &&
-    (endMeters === 0 || distanceBetweenMeters(point, end) > endMeters)
-  )
+  // Sur une activité terminée, masquer une distance parcourue le long de la trace,
+  // et non un rayon autour du domicile. Ne jamais modifier les statistiques enregistrées.
+  if (!live) {
+    let from = 0
+    let to = points.length - 1
+    let distance = 0
+    while (from < to && distance < startMeters) {
+      distance += distanceBetweenMeters(points[from], points[from + 1])
+      from++
+    }
+    distance = 0
+    while (to > from && distance < endMeters) {
+      distance += distanceBetweenMeters(points[to], points[to - 1])
+      to--
+    }
+    return from < to ? points.slice(from, to + 1) : []
+  }
   // Pendant l'enregistrement, cacher la fin de la trace sur la distance parcourue
   // (sinon la position actuelle serait visible en temps réel).
   let lastSafeIndex = points.length - 1
@@ -73,9 +83,13 @@ function privacyRoute(points: MapPoint[], startMeters: number, endMeters: number
     }
   }
   if (lastSafeIndex < 0) return []
-  return points.slice(0, lastSafeIndex + 1).filter(point =>
-    startMeters === 0 || distanceBetweenMeters(point, start) > startMeters
-  )
+  let from = 0
+  let leadingMeters = 0
+  while (from < lastSafeIndex && leadingMeters < startMeters) {
+    leadingMeters += distanceBetweenMeters(points[from], points[from + 1])
+    from++
+  }
+  return from < lastSafeIndex ? points.slice(from, lastSafeIndex + 1) : []
 }
 function PrivacyDistanceControls({ startMeters, endMeters, setStartMeters, setEndMeters }: {
   startMeters: number; endMeters: number;
@@ -139,6 +153,119 @@ function ActivityMap({ points = [], follow = false, height = 290 }: { points?: M
   return <div style={{ marginBottom: 16 }}>
     <div ref={element} style={{ height, width: '100%', background: '#252832', borderRadius: 14, overflow: 'hidden', position: 'relative', isolation: 'isolate', zIndex: 0 }} aria-label="Carte mondiale interactive OpenStreetMap" />
     {error && <p role="alert" style={{ color: '#ff7777', fontSize: 12 }}>{error}</p>}
+  </div>
+}
+
+function ActivityShare({ activity, onClose, startMeters, endMeters }: { activity: Activity; onClose: () => void; startMeters: number; endMeters: number }) {
+  const [photo, setPhoto] = useState<File | null>(null)
+  const [format, setFormat] = useState<'story' | 'post'>('story')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [preview, setPreview] = useState<string | null>(null)
+  useEffect(() => {
+    if (!photo) { setPreview(null); return }
+    const url = URL.createObjectURL(photo)
+    setPreview(url)
+    return () => URL.revokeObjectURL(url)
+  }, [photo])
+
+  async function createImage(): Promise<Blob> {
+    const width = 1080
+    const height = format === 'story' ? 1920 : 1350
+    const canvas = document.createElement('canvas')
+    canvas.width = width; canvas.height = height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('Création de l’image indisponible sur cet appareil.')
+    ctx.fillStyle = '#09090d'; ctx.fillRect(0, 0, width, height)
+    if (photo) {
+      const url = URL.createObjectURL(photo)
+      try {
+        const img = new Image()
+        img.src = url
+        await img.decode()
+        const scale = Math.max(width / img.naturalWidth, height / img.naturalHeight)
+        const w = img.naturalWidth * scale, h = img.naturalHeight * scale
+        ctx.drawImage(img, (width - w) / 2, (height - h) / 2, w, h)
+      } finally { URL.revokeObjectURL(url) }
+    }
+    const gradient = ctx.createLinearGradient(0, 0, 0, height)
+    gradient.addColorStop(0, 'rgba(0,0,0,.70)')
+    gradient.addColorStop(.42, 'rgba(0,0,0,.08)')
+    gradient.addColorStop(1, 'rgba(0,0,0,.94)')
+    ctx.fillStyle = gradient; ctx.fillRect(0, 0, width, height)
+    ctx.textAlign = 'center'; ctx.fillStyle = '#fff'
+    ctx.font = 'bold 50px Arial, sans-serif'; ctx.fillText('MATCHFIT', width / 2, 115)
+    ctx.font = '32px Arial, sans-serif'; ctx.fillText(activity.sport.toUpperCase(), width / 2, 177)
+    const y0 = format === 'story' ? 370 : 275
+    ctx.font = 'bold 36px Arial, sans-serif'; ctx.fillText('DISTANCE', width / 2, y0)
+    ctx.font = 'bold 105px Arial, sans-serif'; ctx.fillText(activity.distance_km === null ? '—' : `${activity.distance_km.toFixed(2).replace('.', ',')} km`, width / 2, y0 + 115)
+    ctx.font = 'bold 36px Arial, sans-serif'; ctx.fillText('D+', width / 2, y0 + 215)
+    ctx.font = 'bold 95px Arial, sans-serif'; ctx.fillText(activity.elevation_m === null ? '—' : `${Math.round(activity.elevation_m)} m`, width / 2, y0 + 320)
+    ctx.font = 'bold 36px Arial, sans-serif'; ctx.fillText('TEMPS', width / 2, y0 + 420)
+    const duration = activity.duration_seconds
+    const time = `${Math.floor(duration / 3600) ? Math.floor(duration / 3600) + 'h ' : ''}${Math.floor(duration % 3600 / 60)}min`
+    ctx.font = 'bold 95px Arial, sans-serif'; ctx.fillText(time, width / 2, y0 + 525)
+    const route = privacyRoute(activity.route ?? [], startMeters, endMeters)
+    if (route.length > 1) {
+      const lats = route.map(p => p.lat), lngs = route.map(p => p.lng)
+      const latMid = (Math.min(...lats) + Math.max(...lats)) / 2
+      const cos = Math.max(.01, Math.cos(latMid * Math.PI / 180))
+      const coords = route.map(p => ({ x: p.lng * cos, y: p.lat }))
+      const xs = coords.map(p => p.x), ys = coords.map(p => p.y)
+      const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys)
+      const availableW = width * .72, availableH = format === 'story' ? 380 : 245
+      const scale = Math.min(availableW / Math.max(maxX - minX, 1e-8), availableH / Math.max(maxY - minY, 1e-8))
+      const centerX = (minX + maxX) / 2, centerY = (minY + maxY) / 2
+      const mapY = format === 'story' ? 1415 : 1110
+      ctx.beginPath()
+      coords.forEach((p, i) => {
+        const x = width / 2 + (p.x - centerX) * scale
+        const y = mapY - (p.y - centerY) * scale
+        if (!i) ctx.moveTo(x, y); else ctx.lineTo(x, y)
+      })
+      ctx.strokeStyle = '#ff651e'; ctx.lineWidth = 13; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.stroke()
+    }
+    ctx.font = 'bold 54px Arial, sans-serif'; ctx.fillStyle = '#fff'
+    ctx.fillText('MATCHFIT SOCIAL', width / 2, height - 115)
+    return new Promise<Blob>((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Image non générée.')), 'image/png'))
+  }
+
+  async function exportImage() {
+    if (busy) return
+    setBusy(true); setError('')
+    try {
+      const blob = await createImage()
+      const file = new File([blob], `matchfit-${format}.png`, { type: 'image/png' })
+      if (navigator.canShare?.({ files: [file] }) && navigator.share) {
+        try { await navigator.share({ files: [file], title: 'Mon activité MatchFit' }); return }
+        catch (e) { if (e instanceof Error && e.name === 'AbortError') return }
+      }
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a'); a.href = url; a.download = file.name
+      document.body.appendChild(a); a.click(); a.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 30000)
+    } catch (e) { setError(e instanceof Error ? e.message : 'Partage impossible.') }
+    finally { setBusy(false) }
+  }
+
+  return <div style={{ ...cardStyle, marginTop: 18 }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <h3 style={{ margin: 0 }}>Partager mon activité</h3>
+      <button type="button" onClick={onClose} style={linkStyle}>✕ Fermer</button>
+    </div>
+    <p style={{ fontSize: 13, color: '#aaa' }}>Choisis ta photo : distance, durée, dénivelé et tracé visible seront superposés. Les zones masquées au départ et à l’arrivée ne figureront pas sur l’image.</p>
+    <label style={{ display: 'block', fontSize: 14 }}>Photo de fond
+      <input type="file" accept="image/jpeg,image/png,image/webp" onChange={e => setPhoto(e.target.files?.[0] ?? null)} style={{ ...fieldStyle, padding: 10 }} />
+    </label>
+    {preview && <img src={preview} alt="Photo de fond choisie" style={{ width: '100%', maxHeight: 240, objectFit: 'cover', borderRadius: 12 }} />}
+    <div style={{ display: 'flex', gap: 10, margin: '16px 0' }}>
+      <button type="button" onClick={() => setFormat('story')} style={{ ...primaryStyle, flex: 1, background: format === 'story' ? '#ff6558' : '#30313b' }}>Story 9:16</button>
+      <button type="button" onClick={() => setFormat('post')} style={{ ...primaryStyle, flex: 1, background: format === 'post' ? '#ff6558' : '#30313b' }}>Publication 4:5</button>
+    </div>
+    <button type="button" disabled={busy} onClick={() => void exportImage()} style={primaryStyle}>{busy ? 'Préparation...' : '↗ Partager sur Instagram / Enregistrer l’image'}</button>
+    {error && <p role="alert" style={{ color: '#ff7777' }}>{error}</p>}
+    <p style={{ fontSize: 12, color: '#aaa' }}>Départ masqué : {startMeters} m · Arrivée masquée : {endMeters} m. La distance totale reste inchangée et l’allure n’est pas affichée sur l’image.</p>
+    <p style={{ fontSize: 12, color: '#aaa' }}>Sur iPhone, choisis Instagram dans la feuille de partage si proposé ; sinon enregistre l’image puis ouvre Instagram.</p>
   </div>
 }
 
@@ -357,6 +484,7 @@ function App() {
   const [followerCount, setFollowerCount] = useState(0)
   const [followingCount, setFollowingCount] = useState(0)
   const [activities, setActivities] = useState<Activity[]>([])
+  const [shareActivity, setShareActivity] = useState<Activity | null>(null)
   const [activityLoading, setActivityLoading] = useState(false)
   const [activityError, setActivityError] = useState('')
   const [activityMode, setActivityMode] = useState<'list' | 'manual' | 'choose' | 'gps'>('list')
@@ -1937,6 +2065,8 @@ function App() {
                 {activity.notes && <p style={{ fontSize: 13 }}>{activity.notes}</p>}
                 {activity.source === 'gps' && <p style={{ color: '#a4a4ad', fontSize: 12 }}>Parcours enregistré : {activity.route?.length ?? 0} points GPS</p>}
                 {activity.source === 'gps' && activity.route && activity.route.length > 0 && (privacyRoute(activity.route, hideStartMeters, hideEndMeters).length ? <ActivityMap points={privacyRoute(activity.route, hideStartMeters, hideEndMeters)} height={220} /> : <p style={{ color: '#a4a4ad', fontSize: 12 }}>Parcours masqué pour protéger les lieux de départ et d’arrivée.</p>)}
+                <button type="button" onClick={() => setShareActivity(current => current?.id === activity.id ? null : activity)} style={{ ...primaryStyle, marginTop: 12 }}>↗ Partager mon activité</button>
+                {shareActivity?.id === activity.id && <ActivityShare activity={activity} startMeters={hideStartMeters} endMeters={hideEndMeters} onClose={() => setShareActivity(null)} />}
               </article>)}
               <div style={{ marginTop: 26 }}>
                 <h3 style={{ marginBottom: 5 }}>Activités de démonstration</h3>
