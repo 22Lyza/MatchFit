@@ -600,7 +600,7 @@ function App() {
       setActivityError('Vérifie la durée, la distance et le dénivelé.'); return
     }
     setActivitySaving(true); setActivityError('')
-    const payload = { user_id: session.user.id, sport: activitySport, title: activityTitle.trim() || activitySport, started_at: source === 'gps' ? new Date().toISOString() : new Date(activityDate + 'T12:00:00').toISOString(), duration_seconds: seconds, distance_km: distance, elevation_m: elevation, notes: activityNotes.trim(), source, route: source === 'gps' ? gpsPoints : null }
+    const payload = { user_id: session.user.id, sport: activitySport, title: activityTitle.trim() || 'Ma séance du jour', started_at: source === 'gps' ? new Date().toISOString() : new Date(activityDate + 'T12:00:00').toISOString(), duration_seconds: seconds, distance_km: distance, elevation_m: elevation, notes: activityNotes.trim(), source, route: source === 'gps' ? gpsPoints : null }
     const { data, error } = await supabase.from('social_activities').insert(payload).select('*').single()
     setActivitySaving(false)
     if (error) { setActivityError('Enregistrement impossible : ' + error.message); return }
