@@ -212,7 +212,6 @@ function App() {
   const [followRequests, setFollowRequests] = useState<{ follower_id: string; username: string }[]>([])
   const [privacyByUser, setPrivacyByUser] = useState<Record<string, boolean>>({})
   const [discoverSearch, setDiscoverSearch] = useState('')
-  const [searchOpen, setSearchOpen] = useState(false)
   const [discoverPeople, setDiscoverPeople] = useState<SocialProfile[]>([])
   const [discoverPeopleError, setDiscoverPeopleError] = useState('')
   const [followBusy, setFollowBusy] = useState(false)
@@ -379,7 +378,7 @@ function App() {
   }
 
   useEffect(() => {
-    if (!session?.user.id || !searchOpen) return
+    if (!session?.user.id || page !== 'decouvrir') return
     let cancelled = false
     async function loadDiscoverPeople() {
       const { data, error } = await supabase.from('social_profiles')
@@ -391,7 +390,7 @@ function App() {
     }
     void loadDiscoverPeople()
     return () => { cancelled = true }
-  }, [session?.user.id, searchOpen])
+  }, [session?.user.id, page])
 
   const normalizedDiscoverSearch = discoverSearch.trim().toLocaleLowerCase('fr')
   const matchesDiscover = (person: SocialProfile) => {
@@ -1386,21 +1385,6 @@ function App() {
           MATCH<span>FIT</span>
         </h1>
 
-        {page === 'accueil' && (
-          <div className="topbar-actions">
-            <button className="top-action" type="button"
-              aria-label={searchOpen ? 'Fermer la recherche' : 'Rechercher un sportif'}
-              title={searchOpen ? 'Fermer la recherche' : 'Rechercher'}
-              onClick={() => { setSearchOpen(current => !current); setDiscoverSearch('') }}
-              style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', padding: 8 }}>
-              {searchOpen ? <span style={{ fontSize: 26 }}>×</span> : (
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-                  <circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 5 5"/>
-                </svg>
-              )}
-            </button>
-          </div>
-        )}
         {page === 'profil' && (
           <div className="topbar-actions">
             <button
@@ -1417,7 +1401,7 @@ function App() {
         )}
       </header>
 
-      {page === 'accueil' && !searchOpen && (
+      {page === 'accueil' && (
         <section className="home">
           <div className="stories">
             <div className="story" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
@@ -1501,8 +1485,9 @@ function App() {
         </section>
       )}
 
-      {page === 'accueil' && searchOpen && (
+      {page === 'decouvrir' && (
         <section className="placeholder-page">
+
           <label htmlFor="member-search" style={{ display: 'block', fontSize: 13, marginTop: 15 }}>Rechercher un sportif</label>
           <input id="member-search" type="search" autoFocus value={discoverSearch}
             onChange={event => setDiscoverSearch(event.target.value)}
@@ -1525,11 +1510,7 @@ function App() {
             ))}
             {discoverMatches.length === 0 && <p style={{ color: '#a4a4ad' }}>Aucun sportif trouvé.</p>}
           </>}
-        </section>
-      )}
 
-      {page === 'decouvrir' && (
-        <section className="placeholder-page">
           {postsLoading && <p>Chargement des publications...</p>}
           {postsError && <p role="alert" style={{ color: '#ff7777' }}>{postsError}</p>}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 3, marginTop: 16 }}>
@@ -1550,6 +1531,20 @@ function App() {
               </button>
             ))}
           </div>
+          {!normalizedDiscoverSearch && (
+            <>
+              <p style={{ color: '#a4a4ad', fontSize: 12, marginTop: 22, marginBottom: 8 }}>Publications de démonstration</p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 3 }}>
+                {discoverDemos.map(post => (
+                  <button key={post.id} type="button" aria-label={'Ouvrir la publication démo : ' + post.caption}
+                    onClick={() => { setOwnPostMenuOpen(null); setSelectedPost(post) }}
+                    style={{ display: 'block', width: '100%', aspectRatio: '1 / 1', padding: 0, border: 'none', background: '#24252e', overflow: 'hidden', cursor: 'pointer' }}>
+                    <img src={post.media_url} alt={post.caption} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
           {!postsLoading && discoverVisiblePosts.length === 0 &&
             <p style={{ color: '#a4a4ad' }}>Aucune publication publique pour le moment.</p>}
 
