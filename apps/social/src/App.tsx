@@ -1831,10 +1831,9 @@ function App() {
                   <div className="mf-gps-stat"><span>Distance</span><strong>{gpsDistance.toFixed(2)}</strong><small>km</small></div>
                   <div className="mf-gps-stat"><span>Durée</span><strong>{String(Math.floor(gpsSeconds / 3600)).padStart(2, '0')}:{String(Math.floor(gpsSeconds / 60) % 60).padStart(2, '0')}:{String(gpsSeconds % 60).padStart(2, '0')}</strong><small>h:min:s</small></div>
                   <div className="mf-gps-stat"><span>Allure moyenne</span><strong>{gpsPaceLabel}</strong><small>min/km</small></div>
-                  <div className="mf-gps-stat"><span>Dénivelé positif</span><strong>{gpsAltitudeSamples >= 2 ? `+${Math.round(gpsElevation)}` : '—'}</strong><small>m {gpsAltitudeSamples < 2 ? '· altitude insuffisante' : ''}</small></div>
+                  <div className="mf-gps-stat"><span>Dénivelé positif</span><strong>{gpsAltitudeSamples >= 2 ? `+${Math.round(gpsElevation)}` : '—'}</strong><small>m</small></div>
                 </div>
                 <div className="mf-gps-altitude">Altitude actuelle : <strong>{gpsCurrentAltitude === null ? '—' : `${Math.round(gpsCurrentAltitude)} m`}</strong></div>
-                <p className="mf-gps-help">{gpsStatus === 'idle' ? 'Démarre pour enregistrer ton parcours.' : 'Garde MatchFit ouvert et l’écran actif. Le GPS web nécessite HTTPS ou localhost.'} Le dénivelé n’apparaît qu’avec des mesures d’altitude suffisamment fiables.</p>
                 {gpsError && <p role="alert" className="mf-gps-error">{gpsError}</p>}
                 <button type="button" style={primaryStyle} onClick={() => {
                   if (gpsStatus === 'idle') { if (!navigator.geolocation) { setGpsError('GPS indisponible sur cet appareil.'); return } setGpsPoints([]); setGpsDistance(0); setGpsSeconds(0); setGpsElevation(0); setGpsAltitudeSamples(0); setGpsAccuracy(null); setGpsCurrentAltitude(null); gpsLastAltitude.current = null }
