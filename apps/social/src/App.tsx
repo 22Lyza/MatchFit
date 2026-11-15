@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './supabase'
+import { Capacitor } from '@capacitor/core'
+import { BackgroundGeolocation } from '@capacitor-community/background-geolocation'
 
 // Carte OpenStreetMap interactive via Leaflet (chargement à la demande).
 // Aucun changement de dépendance npm n'est nécessaire.
@@ -80,120 +82,6 @@ function ActivityMap({ points = [], follow = false, height = 290 }: { points?: M
   return <div style={{ marginBottom: 16 }}>
     <div ref={element} style={{ height, width: '100%', background: '#252832', borderRadius: 14, overflow: 'hidden', position: 'relative', isolation: 'isolate', zIndex: 0 }} aria-label="Carte mondiale interactive OpenStreetMap" />
     {error && <p role="alert" style={{ color: '#ff7777', fontSize: 12 }}>{error}</p>}
-  </div>
-}
-
-
-// Carte de partage MatchFit : la photo reste locale et les chiffres viennent de l'activité sauvegardée.
-function ActivityShare({ activity, onClose }: { activity: Activity; onClose: () => void }) {
-  const [photo, setPhoto] = useState<File | null>(null)
-  const [format, setFormat] = useState<'story' | 'post'>('story')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const [preview, setPreview] = useState<string | null>(null)
-  useEffect(() => {
-    if (!photo) { setPreview(null); return }
-    const url = URL.createObjectURL(photo)
-    setPreview(url)
-    return () => URL.revokeObjectURL(url)
-  }, [photo])
-
-  async function createImage(): Promise<Blob> {
-    const width = 1080
-    const height = format === 'story' ? 1920 : 1350
-    const canvas = document.createElement('canvas')
-    canvas.width = width; canvas.height = height
-    const ctx = canvas.getContext('2d')
-    if (!ctx) throw new Error('Création de l’image indisponible sur cet appareil.')
-    ctx.fillStyle = '#09090d'; ctx.fillRect(0, 0, width, height)
-    if (photo) {
-      const url = URL.createObjectURL(photo)
-      try {
-        const img = new Image()
-        img.src = url
-        await img.decode()
-        const scale = Math.max(width / img.naturalWidth, height / img.naturalHeight)
-        const w = img.naturalWidth * scale, h = img.naturalHeight * scale
-        ctx.drawImage(img, (width - w) / 2, (height - h) / 2, w, h)
-      } finally { URL.revokeObjectURL(url) }
-    }
-    const gradient = ctx.createLinearGradient(0, 0, 0, height)
-    gradient.addColorStop(0, 'rgba(0,0,0,.70)')
-    gradient.addColorStop(.42, 'rgba(0,0,0,.08)')
-    gradient.addColorStop(1, 'rgba(0,0,0,.94)')
-    ctx.fillStyle = gradient; ctx.fillRect(0, 0, width, height)
-    ctx.textAlign = 'center'; ctx.fillStyle = '#fff'
-    ctx.font = 'bold 50px Arial, sans-serif'; ctx.fillText('MATCHFIT', width / 2, 115)
-    ctx.font = '32px Arial, sans-serif'; ctx.fillText(activity.sport.toUpperCase(), width / 2, 177)
-    const y0 = format === 'story' ? 370 : 275
-    ctx.font = 'bold 36px Arial, sans-serif'; ctx.fillText('DISTANCE', width / 2, y0)
-    ctx.font = 'bold 105px Arial, sans-serif'; ctx.fillText(activity.distance_km === null ? '—' : `${activity.distance_km.toFixed(2).replace('.', ',')} km`, width / 2, y0 + 115)
-    ctx.font = 'bold 36px Arial, sans-serif'; ctx.fillText('D+', width / 2, y0 + 215)
-    ctx.font = 'bold 95px Arial, sans-serif'; ctx.fillText(activity.elevation_m === null ? '—' : `${Math.round(activity.elevation_m)} m`, width / 2, y0 + 320)
-    ctx.font = 'bold 36px Arial, sans-serif'; ctx.fillText('TEMPS', width / 2, y0 + 420)
-    const duration = activity.duration_seconds
-    const time = `${Math.floor(duration / 3600) ? Math.floor(duration / 3600) + 'h ' : ''}${Math.floor(duration % 3600 / 60)}min`
-    ctx.font = 'bold 95px Arial, sans-serif'; ctx.fillText(time, width / 2, y0 + 525)
-    const route = activity.route ?? []
-    if (route.length > 1) {
-      const lats = route.map(p => p.lat), lngs = route.map(p => p.lng)
-      const latMid = (Math.min(...lats) + Math.max(...lats)) / 2
-      const cos = Math.max(.01, Math.cos(latMid * Math.PI / 180))
-      const coords = route.map(p => ({ x: p.lng * cos, y: p.lat }))
-      const xs = coords.map(p => p.x), ys = coords.map(p => p.y)
-      const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys)
-      const availableW = width * .72, availableH = format === 'story' ? 380 : 245
-      const scale = Math.min(availableW / Math.max(maxX - minX, 1e-8), availableH / Math.max(maxY - minY, 1e-8))
-      const centerX = (minX + maxX) / 2, centerY = (minY + maxY) / 2
-      const mapY = format === 'story' ? 1415 : 1110
-      ctx.beginPath()
-      coords.forEach((p, i) => {
-        const x = width / 2 + (p.x - centerX) * scale
-        const y = mapY - (p.y - centerY) * scale
-        if (!i) ctx.moveTo(x, y); else ctx.lineTo(x, y)
-      })
-      ctx.strokeStyle = '#ff651e'; ctx.lineWidth = 13; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.stroke()
-    }
-    ctx.font = 'bold 54px Arial, sans-serif'; ctx.fillStyle = '#fff'
-    ctx.fillText('MATCHFIT SOCIAL', width / 2, height - 115)
-    return new Promise<Blob>((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Image non générée.')), 'image/png'))
-  }
-
-  async function exportImage() {
-    if (busy) return
-    setBusy(true); setError('')
-    try {
-      const blob = await createImage()
-      const file = new File([blob], `matchfit-${format}.png`, { type: 'image/png' })
-      if (navigator.canShare?.({ files: [file] }) && navigator.share) {
-        try { await navigator.share({ files: [file], title: 'Mon activité MatchFit' }); return }
-        catch (e) { if (e instanceof Error && e.name === 'AbortError') return }
-      }
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a'); a.href = url; a.download = file.name
-      document.body.appendChild(a); a.click(); a.remove()
-      window.setTimeout(() => URL.revokeObjectURL(url), 30000)
-    } catch (e) { setError(e instanceof Error ? e.message : 'Partage impossible.') }
-    finally { setBusy(false) }
-  }
-
-  return <div style={{ ...cardStyle, marginTop: 18 }}>
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-      <h3 style={{ margin: 0 }}>Partager mon activité</h3>
-      <button type="button" onClick={onClose} style={linkStyle}>✕ Fermer</button>
-    </div>
-    <p style={{ fontSize: 13, color: '#aaa' }}>Choisis ta photo : distance, durée, dénivelé et parcours seront superposés automatiquement.</p>
-    <label style={{ display: 'block', fontSize: 14 }}>Photo de fond
-      <input type="file" accept="image/jpeg,image/png,image/webp" onChange={e => setPhoto(e.target.files?.[0] ?? null)} style={{ ...fieldStyle, padding: 10 }} />
-    </label>
-    {preview && <img src={preview} alt="Photo de fond choisie" style={{ width: '100%', maxHeight: 240, objectFit: 'cover', borderRadius: 12 }} />}
-    <div style={{ display: 'flex', gap: 10, margin: '16px 0' }}>
-      <button type="button" onClick={() => setFormat('story')} style={{ ...primaryStyle, flex: 1, background: format === 'story' ? '#ff6558' : '#30313b' }}>Story 9:16</button>
-      <button type="button" onClick={() => setFormat('post')} style={{ ...primaryStyle, flex: 1, background: format === 'post' ? '#ff6558' : '#30313b' }}>Publication 4:5</button>
-    </div>
-    <button type="button" disabled={busy} onClick={() => void exportImage()} style={primaryStyle}>{busy ? 'Préparation...' : '↗ Partager sur Instagram / Enregistrer l’image'}</button>
-    {error && <p role="alert" style={{ color: '#ff7777' }}>{error}</p>}
-    <p style={{ fontSize: 12, color: '#aaa' }}>Sur iPhone, choisis Instagram dans la feuille de partage si proposé ; sinon enregistre l’image puis ouvre Instagram.</p>
   </div>
 }
 
@@ -412,7 +300,6 @@ function App() {
   const [followerCount, setFollowerCount] = useState(0)
   const [followingCount, setFollowingCount] = useState(0)
   const [activities, setActivities] = useState<Activity[]>([])
-  const [shareActivity, setShareActivity] = useState<Activity | null>(null)
   const [activityLoading, setActivityLoading] = useState(false)
   const [activityError, setActivityError] = useState('')
   const [activityMode, setActivityMode] = useState<'list' | 'manual' | 'choose' | 'gps'>('list')
@@ -431,6 +318,18 @@ function App() {
   const [gpsElevation, setGpsElevation] = useState(0)
   const [gpsAltitudeSamples, setGpsAltitudeSamples] = useState(0)
   const gpsLastAltitude = useRef<number | null>(null)
+  const gpsLastPoint = useRef<{ lat: number; lng: number; timestamp: number } | null>(null)
+  const gpsDistanceRef = useRef(0)
+  const gpsElevationRef = useRef(0)
+  const gpsAltitudeSamplesRef = useRef(0)
+  const gpsPointsRef = useRef<MapPoint[]>([])
+  const nativeWatcherId = useRef<string | null>(null)
+  const gpsRunStartedAt = useRef<number | null>(null)
+  const gpsElapsedMs = useRef(0)
+  const gpsSessionStartedAt = useRef<string | null>(null)
+  const gpsStatusRef = useRef<'idle' | 'running' | 'paused'>('idle')
+  const nativeGps = Capacitor.isNativePlatform()
+  const [gpsStarting, setGpsStarting] = useState(false)
   const [gpsError, setGpsError] = useState('')
   const [gpsPreviewPosition, setGpsPreviewPosition] = useState<MapPoint | null>(null)
   const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null)
@@ -657,70 +556,149 @@ function App() {
     return () => { cancelled = true }
   }, [activityMode])
 
+  // Horloge fondée sur les timestamps : reste correcte après suspension de l'interface iOS.
   useEffect(() => {
     if (gpsStatus !== 'running') return
-    const interval = window.setInterval(() => setGpsSeconds(value => value + 1), 1000)
+    const update = () => setGpsSeconds(Math.floor((gpsElapsedMs.current + (gpsRunStartedAt.current === null ? 0 : Date.now() - gpsRunStartedAt.current)) / 1000))
+    update()
+    const interval = window.setInterval(update, 1000)
     return () => window.clearInterval(interval)
   }, [gpsStatus])
 
-  useEffect(() => {
-    if (gpsStatus !== 'running' || !navigator.geolocation) return
-    const watch = navigator.geolocation.watchPosition(position => {
-      const next = { lat: position.coords.latitude, lng: position.coords.longitude }
-      setGpsAccuracy(position.coords.accuracy)
-      setGpsCurrentAltitude(position.coords.altitude !== null && Number.isFinite(position.coords.altitude) ? position.coords.altitude : null)
-      if (position.coords.accuracy > 50) return
-      // L'altitude GPS est bruitée : ignorer les mesures trop incertaines et les micro-variations.
-      const altitude = position.coords.altitude
-      const altitudeAccuracy = position.coords.altitudeAccuracy
-      if (altitude !== null && Number.isFinite(altitude) && altitudeAccuracy !== null && altitudeAccuracy <= 15) {
-        const previousAltitude = gpsLastAltitude.current
-        if (previousAltitude === null) {
+  function acceptGpsPosition(latitude: number, longitude: number, accuracy: number, altitude: number | null, altitudeAccuracy: number | null, timestamp: number) {
+    if (gpsStatusRef.current !== 'running') return
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || !Number.isFinite(accuracy)) return
+    setGpsAccuracy(accuracy)
+    if (altitude !== null && Number.isFinite(altitude)) setGpsCurrentAltitude(altitude)
+    if (accuracy > 35 || accuracy <= 0) return
+    const next = { lat: latitude, lng: longitude }
+    const last = gpsLastPoint.current
+    if (last) {
+      const rad = Math.PI / 180
+      const dLat = (latitude - last.lat) * rad
+      const dLng = (longitude - last.lng) * rad
+      const a = Math.sin(dLat / 2) ** 2 + Math.cos(last.lat * rad) * Math.cos(latitude * rad) * Math.sin(dLng / 2) ** 2
+      const meters = 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(Math.max(0, 1 - a)))
+      const seconds = Math.max(0.1, (timestamp - last.timestamp) / 1000)
+      // Écarter les oscillations GPS et les déplacements manifestement impossibles.
+      if (meters < Math.max(3, Math.min(accuracy * 0.35, 8))) return
+      if (meters / seconds > 35 || meters > 300) return
+      gpsDistanceRef.current += meters / 1000
+      setGpsDistance(gpsDistanceRef.current)
+    }
+    gpsLastPoint.current = { ...next, timestamp }
+    gpsPointsRef.current = [...gpsPointsRef.current, next]
+    setGpsPoints(gpsPointsRef.current)
+    if (altitude !== null && Number.isFinite(altitude) && altitudeAccuracy !== null && Number.isFinite(altitudeAccuracy) && altitudeAccuracy > 0 && altitudeAccuracy <= 15) {
+      const previous = gpsLastAltitude.current
+      if (previous === null) {
+        gpsLastAltitude.current = altitude
+        gpsAltitudeSamplesRef.current += 1
+      } else {
+        const difference = altitude - previous
+        if (Math.abs(difference) >= 3 && Math.abs(difference) <= 30) {
+          if (difference > 0) gpsElevationRef.current += difference
           gpsLastAltitude.current = altitude
-          setGpsAltitudeSamples(count => count + 1)
-        } else {
-          const difference = altitude - previousAltitude
-          if (Math.abs(difference) >= 3 && Math.abs(difference) <= 30) {
-            if (difference > 0) setGpsElevation(value => value + difference)
-            gpsLastAltitude.current = altitude
-            setGpsAltitudeSamples(count => count + 1)
-          }
+          gpsAltitudeSamplesRef.current += 1
         }
       }
-      setGpsPoints(previous => {
-        if (previous.length) {
-          const last = previous[previous.length - 1]
-          const rad = Math.PI / 180
-          const dLat = (next.lat - last.lat) * rad
-          const dLng = (next.lng - last.lng) * rad
-          const a = Math.sin(dLat / 2) ** 2 + Math.cos(last.lat * rad) * Math.cos(next.lat * rad) * Math.sin(dLng / 2) ** 2
-          const meters = 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-          if (meters < 5) return previous
-          if (meters > 150) return previous
-          setGpsDistance(value => value + meters / 1000)
-        }
-        return [...previous, next]
-      })
-      setGpsError('')
+      setGpsElevation(gpsElevationRef.current)
+      setGpsAltitudeSamples(gpsAltitudeSamplesRef.current)
+    }
+    setGpsError('')
+  }
+
+  // Safari conserve le suivi web pour les essais ; sur iOS natif on utilise le plugin.
+  useEffect(() => {
+    if (nativeGps || gpsStatus !== 'running' || !navigator.geolocation) return
+    const watch = navigator.geolocation.watchPosition(position => {
+      const c = position.coords
+      acceptGpsPosition(c.latitude, c.longitude, c.accuracy, c.altitude, c.altitudeAccuracy, position.timestamp)
     }, error => setGpsError('Localisation : ' + error.message), { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 })
     return () => navigator.geolocation.clearWatch(watch)
   }, [gpsStatus])
 
+  async function stopNativeGps() {
+    const id = nativeWatcherId.current
+    nativeWatcherId.current = null
+    if (id !== null) {
+      try { await BackgroundGeolocation.removeWatcher({ id }) }
+      catch (error) { console.warn('Arrêt GPS natif :', error) }
+    }
+  }
+
+  async function toggleGpsRecording() {
+    if (gpsStarting) return
+    setGpsStarting(true)
+    setGpsError('')
+    try {
+      if (gpsStatusRef.current === 'running') {
+        gpsElapsedMs.current += gpsRunStartedAt.current === null ? 0 : Date.now() - gpsRunStartedAt.current
+        gpsRunStartedAt.current = null
+        gpsStatusRef.current = 'paused'
+        setGpsStatus('paused')
+        // Une pause coupe réellement la géolocalisation native et web.
+        if (nativeGps) await stopNativeGps()
+        setGpsSeconds(Math.floor(gpsElapsedMs.current / 1000))
+        gpsLastPoint.current = null
+        gpsLastAltitude.current = null
+        return
+      }
+      const fresh = gpsStatusRef.current === 'idle'
+      if (nativeGps) {
+        // iOS affiche sa demande de permission et peut refuser le suivi en arrière-plan.
+        const id = await BackgroundGeolocation.addWatcher({
+          backgroundMessage: 'MatchFit enregistre ton activité sportive même lorsque ton écran est verrouillé.',
+          backgroundTitle: 'Activité MatchFit en cours',
+          requestPermissions: true,
+          stale: false,
+          distanceFilter: 5
+        }, (location, error) => {
+          if (error) {
+            setGpsError('GPS natif : ' + (error.message || 'Localisation indisponible. Vérifie les autorisations iOS.'))
+            return
+          }
+          if (!location) return
+          acceptGpsPosition(location.latitude, location.longitude, location.accuracy, location.altitude ?? null, location.altitudeAccuracy ?? null, typeof location.time === 'number' ? location.time : Date.now())
+        })
+        nativeWatcherId.current = id
+      } else if (!navigator.geolocation) {
+        throw new Error('GPS indisponible sur cet appareil.')
+      }
+      if (fresh) {
+        gpsPointsRef.current = []; gpsDistanceRef.current = 0; gpsElevationRef.current = 0; gpsAltitudeSamplesRef.current = 0
+        gpsLastPoint.current = null; gpsLastAltitude.current = null
+        gpsElapsedMs.current = 0; gpsSessionStartedAt.current = new Date().toISOString()
+        setGpsPoints([]); setGpsDistance(0); setGpsSeconds(0); setGpsElevation(0); setGpsAltitudeSamples(0)
+      }
+      gpsRunStartedAt.current = Date.now()
+      gpsStatusRef.current = 'running'
+      setGpsStatus('running')
+    } catch (error) {
+      setGpsError(error instanceof Error ? error.message : 'Impossible de démarrer le GPS.')
+      await stopNativeGps()
+    } finally { setGpsStarting(false) }
+  }
+
+  // Évite de laisser un watcher actif après démontage du composant.
+  useEffect(() => () => { void stopNativeGps() }, [])
+
   async function saveActivity(source: 'manual' | 'gps') {
     if (!session || activitySaving) return
-    const seconds = source === 'gps' ? gpsSeconds : Math.round(Number(activityMinutes) * 60)
-    const distance = source === 'gps' ? gpsDistance : activityDistance.trim() ? Number(activityDistance.replace(',', '.')) : null
-    const elevation = source === 'gps' ? (gpsAltitudeSamples >= 2 ? Math.round(gpsElevation) : null) : activityElevation.trim() ? Number(activityElevation.replace(',', '.')) : null
+    const seconds = source === 'gps' ? Math.floor((gpsElapsedMs.current + (gpsRunStartedAt.current === null ? 0 : Date.now() - gpsRunStartedAt.current)) / 1000) : Math.round(Number(activityMinutes) * 60)
+    const distance = source === 'gps' ? gpsDistanceRef.current : activityDistance.trim() ? Number(activityDistance.replace(',', '.')) : null
+    const elevation = source === 'gps' ? (gpsAltitudeSamplesRef.current >= 2 ? Math.round(gpsElevationRef.current) : null) : activityElevation.trim() ? Number(activityElevation.replace(',', '.')) : null
     if (!Number.isFinite(seconds) || seconds <= 0 || (distance !== null && (!Number.isFinite(distance) || distance < 0)) || (elevation !== null && (!Number.isFinite(elevation) || elevation < 0))) {
       setActivityError('Vérifie la durée, la distance et le dénivelé.'); return
     }
     setActivitySaving(true); setActivityError('')
-    const payload = { user_id: session.user.id, sport: activitySport, title: activityTitle.trim() || 'Ma séance du jour', started_at: source === 'gps' ? new Date().toISOString() : new Date(activityDate + 'T12:00:00').toISOString(), duration_seconds: seconds, distance_km: distance, elevation_m: elevation, notes: activityNotes.trim(), source, route: source === 'gps' ? gpsPoints : null }
+    const payload = { user_id: session.user.id, sport: activitySport, title: activityTitle.trim() || 'Ma séance du jour', started_at: source === 'gps' ? (gpsSessionStartedAt.current || new Date().toISOString()) : new Date(activityDate + 'T12:00:00').toISOString(), duration_seconds: seconds, distance_km: distance, elevation_m: elevation, notes: activityNotes.trim(), source, route: source === 'gps' ? gpsPointsRef.current : null }
     const { data, error } = await supabase.from('social_activities').insert(payload).select('*').single()
     setActivitySaving(false)
     if (error) { setActivityError('Enregistrement impossible : ' + error.message); return }
+    if (source === 'gps') { gpsStatusRef.current = 'idle'; await stopNativeGps() }
     setActivities(current => [data as Activity, ...current])
-    setActivityMode('list'); setGpsStatus('idle'); setGpsPoints([]); setGpsDistance(0); setGpsSeconds(0); setGpsElevation(0); setGpsAltitudeSamples(0); setGpsAccuracy(null); setGpsCurrentAltitude(null); gpsLastAltitude.current = null
+    setActivityMode('list'); setGpsStatus('idle'); setGpsPoints([]); setGpsDistance(0); setGpsSeconds(0); setGpsElevation(0); setGpsAltitudeSamples(0); setGpsAccuracy(null); setGpsCurrentAltitude(null); gpsLastAltitude.current = null; gpsLastPoint.current = null; gpsRunStartedAt.current = null; gpsElapsedMs.current = 0; gpsSessionStartedAt.current = null; gpsPointsRef.current = []; gpsDistanceRef.current = 0; gpsElevationRef.current = 0; gpsAltitudeSamplesRef.current = 0
     setActivityTitle(''); setActivityMinutes(''); setActivityDistance(''); setActivityElevation(''); setActivityNotes('')
   }
 
@@ -1893,8 +1871,6 @@ function App() {
                 {activity.notes && <p style={{ fontSize: 13 }}>{activity.notes}</p>}
                 {activity.source === 'gps' && <p style={{ color: '#a4a4ad', fontSize: 12 }}>Parcours enregistré : {activity.route?.length ?? 0} points GPS</p>}
                 {activity.source === 'gps' && activity.route && activity.route.length > 0 && <ActivityMap points={activity.route} height={220} />}
-                <button type="button" onClick={() => setShareActivity(activity)} style={{ ...primaryStyle, marginTop: 12 }}>↗ Partager mon activité</button>
-                {shareActivity?.id === activity.id && <ActivityShare activity={activity} onClose={() => setShareActivity(null)} />}
               </article>)}
               <div style={{ marginTop: 26 }}>
                 <h3 style={{ marginBottom: 5 }}>Activités de démonstration</h3>
@@ -1934,7 +1910,7 @@ function App() {
             </div>
           ) : (
             <div style={cardStyle}>
-              <button type="button" style={{ ...linkStyle, paddingLeft: 0 }} onClick={() => { if (gpsStatus === 'running') { setActivityError('Mets le GPS en pause avant de quitter.'); return } setActivityMode('list') }}>← Retour aux activités</button>
+              <button type="button" style={{ ...linkStyle, paddingLeft: 0 }} onClick={() => { if (gpsStatus !== 'idle') { setActivityError('Enregistre ton activité avant de quitter.'); return } setActivityMode('list') }}>← Retour aux activités</button>
               <h3>Enregistrement GPS · {activitySport}</h3>
               <label>Sport<select style={fieldStyle} value={activitySport} onChange={event => setActivitySport(event.target.value)}>{['Course à pied', 'Trail', 'Marche', 'Randonnée', 'Vélo', 'Musculation', 'Natation', 'Fitness', 'Autre'].map(sport => <option key={sport}>{sport}</option>)}</select></label>
               <label>Titre<input style={fieldStyle} value={activityTitle} onChange={event => setActivityTitle(event.target.value)} placeholder="Ma séance du jour" maxLength={100} /></label>
@@ -1952,14 +1928,11 @@ function App() {
                 </div>
                 <div className="mf-gps-altitude">Altitude actuelle : <strong>{gpsCurrentAltitude === null ? '—' : `${Math.round(gpsCurrentAltitude)} m`}</strong></div>
                 {gpsError && <p role="alert" className="mf-gps-error">{gpsError}</p>}
-                <button type="button" style={primaryStyle} onClick={() => {
-                  if (gpsStatus === 'idle') { if (!navigator.geolocation) { setGpsError('GPS indisponible sur cet appareil.'); return } setGpsPoints([]); setGpsDistance(0); setGpsSeconds(0); setGpsElevation(0); setGpsAltitudeSamples(0); setGpsAccuracy(null); setGpsCurrentAltitude(null); gpsLastAltitude.current = null }
-                  setGpsStatus(gpsStatus === 'running' ? 'paused' : 'running')
-                }}>{gpsStatus === 'running' ? '⏸ Pause' : gpsStatus === 'paused' ? '▶ Reprendre' : '▶ Démarrer'}</button>
+                <button type="button" style={primaryStyle} onClick={() => void toggleGpsRecording()} disabled={gpsStarting}>{gpsStarting ? 'Connexion GPS...' : gpsStatus === 'running' ? '⏸ Pause' : gpsStatus === 'paused' ? '▶ Reprendre' : '▶ Démarrer'}</button>
               </div>}
               {activityMode === 'manual' && <label>Dénivelé positif (m, facultatif)<input type="number" min="0" step="1" style={fieldStyle} value={activityElevation} onChange={event => setActivityElevation(event.target.value)} /></label>}
               <label>Notes<textarea style={{ ...fieldStyle, minHeight: 85 }} value={activityNotes} onChange={event => setActivityNotes(event.target.value)} placeholder="Comment s'est passée la séance ?" /></label>
-              <button type="button" style={primaryStyle} disabled={activitySaving || (activityMode === 'gps' && (gpsStatus === 'running' || gpsSeconds === 0))} onClick={() => void saveActivity(activityMode)}>{activitySaving ? 'Enregistrement...' : 'Enregistrer mon activité'}</button>
+              <button type="button" style={primaryStyle} disabled={activitySaving || (activityMode === 'gps' && (gpsStatus === 'running' || gpsStarting || gpsSeconds === 0))} onClick={() => void saveActivity(activityMode)}>{activitySaving ? 'Enregistrement...' : 'Enregistrer mon activité'}</button>
             </div>
           )}
           {activityError && <p role="alert" style={{ color: '#ff7777' }}>{activityError}</p>}
