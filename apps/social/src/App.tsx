@@ -4,6 +4,98 @@ import type { CSSProperties, FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 
+// Carte OpenStreetMap interactive via Leaflet (chargement à la demande).
+// Aucun changement de dépendance npm n'est nécessaire.
+type MapPoint = { lat: number; lng: number }
+type LeafletMap = { setView: (point: [number, number], zoom: number) => void; fitBounds: (points: [number, number][], options?: object) => void; remove: () => void; invalidateSize: () => void }
+type LeafletLine = { setLatLngs: (points: [number, number][]) => void; addTo: (map: LeafletMap) => LeafletLine }
+type LeafletMarker = { setLatLng: (point: [number, number]) => void; addTo: (map: LeafletMap) => LeafletMarker }
+type LeafletAPI = {
+  map: (node: HTMLElement, options: object) => LeafletMap
+  tileLayer: (url: string, options: object) => { addTo: (map: LeafletMap) => void }
+  polyline: (points: [number, number][], options: object) => LeafletLine
+  circleMarker: (point: [number, number], options: object) => LeafletMarker
+}
+declare global { interface Window { L?: LeafletAPI } }
+let leafletPromise: Promise<LeafletAPI> | null = null
+function loadLeaflet(): Promise<LeafletAPI> {
+  if (window.L) return Promise.resolve(window.L)
+  if (!leafletPromise) {
+    leafletPromise = new Promise<LeafletAPI>((resolve, reject) => {
+      if (!document.querySelector('link[data-matchfit-leaflet]')) {
+        const css = document.createElement('link')
+        css.rel = 'stylesheet'
+        css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
+        css.dataset.matchfitLeaflet = 'true'
+        document.head.appendChild(css)
+      }
+      const script = document.createElement('script')
+      script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
+      script.async = true
+      script.onload = () => window.L ? resolve(window.L) : reject(new Error('Carte indisponible'))
+      script.onerror = () => reject(new Error('Impossible de charger la carte. Vérifie ta connexion.'))
+      document.head.appendChild(script)
+    }).catch(error => { leafletPromise = null; throw error })
+  }
+  return leafletPromise
+}
+function ActivityMap({ points = [], follow = false, height = 290 }: { points?: MapPoint[]; follow?: boolean; height?: number }) {
+  const element = useRef<HTMLDivElement | null>(null)
+  const map = useRef<LeafletMap | null>(null)
+  const line = useRef<LeafletLine | null>(null)
+  const marker = useRef<LeafletMarker | null>(null)
+  const latestPoints = useRef(points)
+  latestPoints.current = points
+  const [error, setError] = useState('')
+  const [locating, setLocating] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    void loadLeaflet().then(L => {
+      if (cancelled || !element.current) return
+      const instance = L.map(element.current, { zoomControl: true, scrollWheelZoom: false })
+      map.current = instance
+      instance.setView([25, 0], 2)
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors', maxZoom: 19
+      }).addTo(instance)
+      line.current = L.polyline([], { color: '#ff6558', weight: 5, opacity: 0.95 }).addTo(instance)
+      if (latestPoints.current.length) {
+        const coords = latestPoints.current.map(point => [point.lat, point.lng] as [number, number])
+        line.current.setLatLngs(coords)
+        instance.fitBounds(coords, { padding: [24, 24], maxZoom: 16 })
+      }
+      setTimeout(() => { if (!cancelled) instance.invalidateSize() }, 100)
+    }).catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : 'Carte indisponible') })
+    return () => { cancelled = true; map.current?.remove(); map.current = null; line.current = null; marker.current = null }
+  }, [])
+  useEffect(() => {
+    if (!map.current || !line.current || !window.L || !points.length) return
+    const coords = points.map(point => [point.lat, point.lng] as [number, number])
+    line.current.setLatLngs(coords)
+    const last = coords[coords.length - 1]
+    if (!marker.current) marker.current = window.L.circleMarker(last, { radius: 7, color: '#fff', weight: 2, fillColor: '#ff6558', fillOpacity: 1 }).addTo(map.current)
+    else marker.current.setLatLng(last)
+    if (follow) map.current.setView(last, 16)
+    else map.current.fitBounds(coords, { padding: [24, 24], maxZoom: 16 })
+  }, [points, follow])
+  function locate() {
+    if (!navigator.geolocation) { setError('Localisation non disponible.'); return }
+    setLocating(true)
+    navigator.geolocation.getCurrentPosition(position => {
+      map.current?.setView([position.coords.latitude, position.coords.longitude], 15)
+      setLocating(false); setError('')
+    }, () => { setLocating(false); setError('Localisation refusée ou indisponible.') }, { enableHighAccuracy: true, timeout: 12000 })
+  }
+  return <div style={{ marginBottom: 16 }}>
+    <div ref={element} style={{ height, width: '100%', background: '#252832', borderRadius: 14, overflow: 'hidden', zIndex: 0 }} aria-label="Carte mondiale interactive OpenStreetMap" />
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginTop: 8 }}>
+      <span style={{ color: '#a4a4ad', fontSize: 11 }}>Carte © OpenStreetMap · zoom et déplacement libres</span>
+      <button type="button" onClick={locate} disabled={locating} style={{ background: '#24252e', color: '#fff', border: '1px solid #444550', borderRadius: 9, padding: '8px 10px', cursor: 'pointer', fontSize: 12 }}>{locating ? 'Localisation…' : '⌖ Ma position'}</button>
+    </div>
+    {error && <p role="alert" style={{ color: '#ff7777', fontSize: 12 }}>{error}</p>}
+  </div>
+}
+
 function ModernHeart({ filled, size = 26 }: { filled: boolean; size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24"
@@ -1665,6 +1757,7 @@ function App() {
                 <button type="button" style={primaryStyle} onClick={() => { setActivityError(''); setActivityMode('manual') }}>＋ Ajouter une activité</button>
                 <button type="button" style={{ ...primaryStyle, background: '#24252e', border: '1px solid #444550' }} onClick={() => { setActivityError(''); setActivityMode('gps') }}>⌖ Enregistrer GPS</button>
               </div>
+              <ActivityMap height={310} />
               {activityLoading && <p>Chargement de tes activités...</p>}
               {!activityLoading && activities.length === 0 && !activityError && <p style={{ color: '#a4a4ad' }}>Aucune activité pour le moment. Enregistre ta première séance !</p>}
               {activities.map(activity => <article key={activity.id} style={{ ...cardStyle, marginTop: 12 }}>
@@ -1674,6 +1767,7 @@ function App() {
                 {activity.distance_km !== null && activity.distance_km > 0 && <p style={{ fontSize: 12, color: '#a4a4ad' }}>Allure moyenne : {Math.floor(activity.duration_seconds / 60 / activity.distance_km)}:{String(Math.round(activity.duration_seconds / activity.distance_km) % 60).padStart(2, '0')} /km</p>}
                 {activity.notes && <p style={{ fontSize: 13 }}>{activity.notes}</p>}
                 {activity.source === 'gps' && <p style={{ color: '#a4a4ad', fontSize: 12 }}>Parcours enregistré : {activity.route?.length ?? 0} points GPS</p>}
+                {activity.source === 'gps' && activity.route && activity.route.length > 0 && <ActivityMap points={activity.route} height={220} />}
               </article>)}
               <div style={{ marginTop: 26 }}>
                 <h3 style={{ marginBottom: 5 }}>Activités de démonstration</h3>
@@ -1705,6 +1799,7 @@ function App() {
                 <label>Durée (minutes)<input type="number" min="1" step="1" style={fieldStyle} value={activityMinutes} onChange={event => setActivityMinutes(event.target.value)} placeholder="45" /></label>
                 <label>Distance (km, facultatif)<input type="number" min="0" step="0.01" style={fieldStyle} value={activityDistance} onChange={event => setActivityDistance(event.target.value)} placeholder="8.5" /></label>
               </> : <div style={{ background: '#24252e', padding: 18, borderRadius: 14, marginBottom: 16, textAlign: 'center' }}>
+                <ActivityMap points={gpsPoints} follow={gpsStatus === 'running'} height={320} />
                 <p style={{ fontSize: 30, fontWeight: 700, margin: 4 }}>{formatActivityTime(gpsSeconds)}</p>
                 <p>{gpsDistance.toFixed(2)} km · {gpsPoints.length} points GPS</p>
                 <p style={{ color: '#ff8a4b', fontWeight: 700 }}>⛰ Dénivelé positif : {gpsAltitudeSamples >= 2 ? Math.round(gpsElevation) + ' m' : 'En attente de données d’altitude fiables'}</p>
