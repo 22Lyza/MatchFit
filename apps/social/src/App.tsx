@@ -156,10 +156,10 @@ function ActivityMap({ points = [], follow = false, height = 290 }: { points?: M
   </div>
 }
 
-function ActivityShare({ activity, startMeters, endMeters, hidePace }: { activity: Activity; startMeters: number; endMeters: number; hidePace: boolean }) {
+function ActivityShare({ activity, startMeters, endMeters }: { activity: Activity; startMeters: number; endMeters: number }) {
   const [showOptions, setShowOptions] = useState(false)
   const [includeElevation, setIncludeElevation] = useState(false)
-  const [includeSpeed, setIncludeSpeed] = useState(false)
+  const [includePace, setIncludePace] = useState(false)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
 
@@ -200,12 +200,12 @@ function ActivityShare({ activity, startMeters, endMeters, hidePace }: { activit
         const xs = coords.map(p => p.x), ys = coords.map(p => p.y)
         const minX = Math.min(...xs), maxX = Math.max(...xs)
         const minY = Math.min(...ys), maxY = Math.max(...ys)
-        const scale = Math.min(820 / Math.max(maxX - minX, 1e-8), 530 / Math.max(maxY - minY, 1e-8))
+        const scale = Math.min(820 / Math.max(maxX - minX, 1e-8), 460 / Math.max(maxY - minY, 1e-8))
         const centerX = (minX + maxX) / 2, centerY = (minY + maxY) / 2
         ctx.beginPath()
         coords.forEach((point, index) => {
           const x = width / 2 + (point.x - centerX) * scale
-          const y = 510 - (point.y - centerY) * scale
+          const y = 470 - (point.y - centerY) * scale
           if (index === 0) ctx.moveTo(x, y)
           else ctx.lineTo(x, y)
         })
@@ -225,20 +225,21 @@ function ActivityShare({ activity, startMeters, endMeters, hidePace }: { activit
       ctx.font = 'bold 55px Arial, sans-serif'
       ctx.fillText(duration, width / 2, 945)
       let statY = 1010
-      if (!hidePace && activity.distance_km !== null && activity.distance_km > 0) {
-        const pace = Math.round(seconds / activity.distance_km)
+      if (includePace && activity.distance_km !== null && activity.distance_km > 0 && seconds > 0) {
+        const isBike = /vélo|velo|cyclisme|vtt|bike|cycling|bicyclette/i.test(activity.sport)
+        const paceOrSpeed = isBike
+          ? `${(activity.distance_km * 3600 / seconds).toFixed(1).replace('.', ',')} km/h`
+          : (() => {
+              const pace = Math.round(seconds / activity.distance_km!)
+              return `${Math.floor(pace / 60)}:${String(pace % 60).padStart(2, '0')} /km`
+            })()
         ctx.font = 'bold 39px Arial, sans-serif'
-        ctx.fillText(`${Math.floor(pace / 60)}:${String(pace % 60).padStart(2, '0')} /km`, width / 2, statY)
+        ctx.fillText(paceOrSpeed, width / 2, statY)
         statY += 55
       }
       if (includeElevation && activity.elevation_m !== null) {
         ctx.font = 'bold 34px Arial, sans-serif'
         ctx.fillText(`D+ ${Math.round(activity.elevation_m)} m`, width / 2, statY)
-        statY += 48
-      }
-      if (includeSpeed && activity.distance_km !== null && seconds > 0) {
-        ctx.font = 'bold 34px Arial, sans-serif'
-        ctx.fillText(`${(activity.distance_km * 3600 / seconds).toFixed(1).replace('.', ',')} km/h`, width / 2, statY)
       }
 
       if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
@@ -271,12 +272,12 @@ function ActivityShare({ activity, startMeters, endMeters, hidePace }: { activit
         ×
       </button>
       <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <input type="checkbox" checked={includeElevation} onChange={event => setIncludeElevation(event.target.checked)} />
-        Ajouter le dénivelé
+        <input type="checkbox" checked={includePace} onChange={event => setIncludePace(event.target.checked)} />
+        Ajouter l’allure
       </label>
       <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <input type="checkbox" checked={includeSpeed} onChange={event => setIncludeSpeed(event.target.checked)} />
-        Ajouter la vitesse
+        <input type="checkbox" checked={includeElevation} onChange={event => setIncludeElevation(event.target.checked)} />
+        Ajouter le dénivelé
       </label>
       <button type="button" disabled={busy} onClick={() => void copyActivity()}
         style={{ justifySelf: 'stretch', border: '1px solid #444550', borderRadius: 8, background: 'transparent', color: '#fff', padding: '10px 12px', fontSize: 13, cursor: busy ? 'wait' : 'pointer' }}>
@@ -2096,7 +2097,7 @@ function App() {
               {activityLoading && <p>Chargement de tes activités...</p>}
               {!activityLoading && activities.length === 0 && !activityError && <p style={{ color: '#a4a4ad' }}>Aucune activité pour le moment. Enregistre ta première séance !</p>}
               {activities.map(activity => <article key={activity.id} style={{ ...cardStyle, marginTop: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}><strong>{activity.title}</strong><ActivityShare activity={activity} startMeters={hideStartMeters} endMeters={hideEndMeters} hidePace={hidePace} /></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}><strong>{activity.title}</strong><ActivityShare activity={activity} startMeters={hideStartMeters} endMeters={hideEndMeters} /></div>
                 <p style={{ color: '#a4a4ad', fontSize: 13 }}>{activity.sport} · {new Date(activity.started_at).toLocaleDateString('fr-CH')}</p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, fontSize: 14 }}><span>⏱ {formatActivityTime(activity.duration_seconds)}</span>{activity.distance_km !== null && <span>↗ {activity.distance_km.toFixed(2)} km</span>}{activity.elevation_m !== null && <span>⛰ {activity.elevation_m} m</span>}</div>
                 {!hidePace && activity.distance_km !== null && activity.distance_km > 0 && <p style={{ fontSize: 12, color: '#a4a4ad' }}>Allure moyenne : {Math.floor(activity.duration_seconds / 60 / activity.distance_km)}:{String(Math.round(activity.duration_seconds / activity.distance_km) % 60).padStart(2, '0')} /km</p>}
@@ -2113,7 +2114,7 @@ function App() {
                   return <article key={demo.id} style={{ ...cardStyle, marginTop: 12, borderColor: '#3d3e49' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                       <div><strong>{demo.title}</strong><span style={{ color: '#ff8a4b', fontSize: 10, fontWeight: 700, marginLeft: 8 }}>DÉMO</span></div>
-                      <ActivityShare activity={demo} startMeters={hideStartMeters} endMeters={hideEndMeters} hidePace={hidePace} />
+                      <ActivityShare activity={demo} startMeters={hideStartMeters} endMeters={hideEndMeters} />
                     </div>
                     <p style={{ color: '#a4a4ad', fontSize: 13 }}>{demo.sport} · Parcours fictif</p>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, fontSize: 14 }}>
