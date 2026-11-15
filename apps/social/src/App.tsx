@@ -173,7 +173,7 @@ function ActivityShare({ activity, startMeters, endMeters, hidePace }: { activit
       // autant que possible l'autorisation du presse-papiers sur iOS.
       const canvas = document.createElement('canvas')
       const width = 1080
-      const height = 1200
+      const height = 1250
       canvas.width = width
       canvas.height = height
       const ctx = canvas.getContext('2d')
@@ -186,30 +186,10 @@ function ActivityShare({ activity, startMeters, endMeters, hidePace }: { activit
       ctx.fillText('MATCHFIT', width / 2, 110)
       ctx.font = 'bold 32px Arial, sans-serif'
       ctx.fillText(activity.sport.toUpperCase(), width / 2, 166)
-      ctx.font = 'bold 100px Arial, sans-serif'
-      ctx.fillText(activity.distance_km === null ? '—' : `${activity.distance_km.toFixed(2).replace('.', ',')} km`, width / 2, 315)
+      // Composition : en-tête, parcours orange, puis statistiques en dessous.
       const seconds = activity.duration_seconds
       const totalMinutes = Math.floor(seconds / 60)
       const duration = totalMinutes < 60 ? `${totalMinutes} minutes` : `${Math.floor(totalMinutes / 60)}h${String(totalMinutes % 60).padStart(2, '0')}`
-      // Statistiques centrales : temps toujours visible, allure selon confidentialité.
-      ctx.font = 'bold 55px Arial, sans-serif'
-      ctx.fillText(duration, width / 2, 405)
-      let statY = 475
-      if (!hidePace && activity.distance_km !== null && activity.distance_km > 0) {
-        const pace = Math.round(seconds / activity.distance_km)
-        ctx.font = 'bold 39px Arial, sans-serif'
-        ctx.fillText(`${Math.floor(pace / 60)}:${String(pace % 60).padStart(2, '0')} /km`, width / 2, statY)
-        statY += 58
-      }
-      if (includeElevation && activity.elevation_m !== null) {
-        ctx.font = 'bold 34px Arial, sans-serif'
-        ctx.fillText(`D+ ${Math.round(activity.elevation_m)} m`, width / 2, statY)
-        statY += 52
-      }
-      if (includeSpeed && activity.distance_km !== null && seconds > 0) {
-        ctx.font = 'bold 34px Arial, sans-serif'
-        ctx.fillText(`${(activity.distance_km * 3600 / seconds).toFixed(1).replace('.', ',')} km/h`, width / 2, statY)
-      }
       const route = privacyRoute(activity.route ?? [], startMeters, endMeters)
       if (route.length > 1) {
         const lats = route.map(p => p.lat)
@@ -220,21 +200,45 @@ function ActivityShare({ activity, startMeters, endMeters, hidePace }: { activit
         const xs = coords.map(p => p.x), ys = coords.map(p => p.y)
         const minX = Math.min(...xs), maxX = Math.max(...xs)
         const minY = Math.min(...ys), maxY = Math.max(...ys)
-        const scale = Math.min(800 / Math.max(maxX - minX, 1e-8), 480 / Math.max(maxY - minY, 1e-8))
+        const scale = Math.min(820 / Math.max(maxX - minX, 1e-8), 530 / Math.max(maxY - minY, 1e-8))
         const centerX = (minX + maxX) / 2, centerY = (minY + maxY) / 2
         ctx.beginPath()
         coords.forEach((point, index) => {
           const x = width / 2 + (point.x - centerX) * scale
-          const y = 860 - (point.y - centerY) * scale
+          const y = 510 - (point.y - centerY) * scale
           if (index === 0) ctx.moveTo(x, y)
           else ctx.lineTo(x, y)
         })
         ctx.shadowBlur = 8
         ctx.strokeStyle = '#ff8a4b'
-        ctx.lineWidth = 15
+        ctx.lineWidth = 12
         ctx.lineCap = 'round'
         ctx.lineJoin = 'round'
         ctx.stroke()
+      }
+
+      // Les chiffres se trouvent SOUS le parcours, jamais au-dessus.
+      ctx.shadowBlur = 14
+      ctx.fillStyle = '#fff'
+      ctx.font = 'bold 95px Arial, sans-serif'
+      ctx.fillText(activity.distance_km === null ? '—' : `${activity.distance_km.toFixed(2).replace('.', ',')} km`, width / 2, 865)
+      ctx.font = 'bold 55px Arial, sans-serif'
+      ctx.fillText(duration, width / 2, 945)
+      let statY = 1010
+      if (!hidePace && activity.distance_km !== null && activity.distance_km > 0) {
+        const pace = Math.round(seconds / activity.distance_km)
+        ctx.font = 'bold 39px Arial, sans-serif'
+        ctx.fillText(`${Math.floor(pace / 60)}:${String(pace % 60).padStart(2, '0')} /km`, width / 2, statY)
+        statY += 55
+      }
+      if (includeElevation && activity.elevation_m !== null) {
+        ctx.font = 'bold 34px Arial, sans-serif'
+        ctx.fillText(`D+ ${Math.round(activity.elevation_m)} m`, width / 2, statY)
+        statY += 48
+      }
+      if (includeSpeed && activity.distance_km !== null && seconds > 0) {
+        ctx.font = 'bold 34px Arial, sans-serif'
+        ctx.fillText(`${(activity.distance_km * 3600 / seconds).toFixed(1).replace('.', ',')} km/h`, width / 2, statY)
       }
 
       if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
@@ -306,6 +310,28 @@ type SocialPost = {
 }
 
 // Publications fictives pour illustrer Découvrir, sans écriture dans Supabase.
+// Activités fictives pour tester la carte et le partage sans enregistrer de GPS.
+// Coordonnées inventées : elles ne représentent pas un trajet réellement parcouru.
+function makeDemoRoute(centerLat: number, centerLng: number, latRadius: number, lngRadius: number, phase: number): MapPoint[] {
+  return Array.from({ length: 91 }, (_, index) => {
+    const angle = (index / 90) * Math.PI * 2
+    const wobble = 1 + 0.13 * Math.sin(3 * angle + phase) + 0.08 * Math.cos(5 * angle - phase)
+    return {
+      lat: centerLat + Math.sin(angle) * latRadius * wobble,
+      lng: centerLng + Math.cos(angle) * lngRadius * wobble
+    }
+  })
+}
+
+const demoActivities: Activity[] = [
+  { id: 'demo-running', user_id: 'demo', sport: 'Course à pied', title: 'Running du matin', started_at: '2026-11-14T08:15:00', duration_seconds: 2700, distance_km: 6.8, elevation_m: 85, notes: '', source: 'gps', route: makeDemoRoute(46.518, 6.632, 0.012, 0.021, 0.3), created_at: '2026-11-14T08:15:00' },
+  { id: 'demo-trail', user_id: 'demo', sport: 'Trail', title: 'Sortie en montagne', started_at: '2026-11-13T09:20:00', duration_seconds: 7260, distance_km: 16.8, elevation_m: 780, notes: '', source: 'gps', route: makeDemoRoute(46.352, 7.159, 0.028, 0.042, 1.4), created_at: '2026-11-13T09:20:00' },
+  { id: 'demo-velo', user_id: 'demo', sport: 'Vélo', title: 'Boucle du dimanche', started_at: '2026-11-08T10:00:00', duration_seconds: 5400, distance_km: 34.6, elevation_m: 420, notes: '', source: 'gps', route: makeDemoRoute(46.47, 6.72, 0.04, 0.075, 2.1), created_at: '2026-11-08T10:00:00' },
+  { id: 'demo-rando', user_id: 'demo', sport: 'Randonnée', title: 'Randonnée panoramique', started_at: '2026-11-07T09:00:00', duration_seconds: 9600, distance_km: 11.2, elevation_m: 610, notes: '', source: 'gps', route: makeDemoRoute(46.34, 7.19, 0.018, 0.027, 3.0), created_at: '2026-11-07T09:00:00' },
+  { id: 'demo-trail-vertical', user_id: 'demo', sport: 'Trail', title: 'Montée des sommets', started_at: '2026-11-06T07:30:00', duration_seconds: 4680, distance_km: 9.4, elevation_m: 1120, notes: '', source: 'gps', route: makeDemoRoute(46.329, 7.202, 0.015, 0.019, 2.7), created_at: '2026-11-06T07:30:00' },
+  { id: 'demo-marche', user_id: 'demo', sport: 'Marche', title: 'Balade vallonnée', started_at: '2026-11-05T10:00:00', duration_seconds: 3480, distance_km: 4.8, elevation_m: 160, notes: '', source: 'gps', route: makeDemoRoute(46.51, 6.61, 0.008, 0.012, 0.8), created_at: '2026-11-05T10:00:00' }
+]
+
 const discoverDemos: SocialPost[] = [
   { id: 'discover-demo-emma', user_id: 'discover-demo-emma', caption: 'Emma · Running — Sortie matinale 🏃‍♀️', media_url: 'https://images.unsplash.com/photo-1552674605-db6ffd4facb5?w=900&auto=format&fit=crop&q=80', media_type: 'image', created_at: '2026-11-13', hide_like_count: false, comments_disabled: false },
   { id: 'discover-demo-lucas', user_id: 'discover-demo-lucas', caption: 'Lucas · Musculation — Séance du jour 💪', media_url: 'https://images.unsplash.com/photo-1517836357463-d25dfeac3438?w=900&auto=format&fit=crop&q=80', media_type: 'image', created_at: '2026-11-13', hide_like_count: false, comments_disabled: false },
@@ -2077,18 +2103,22 @@ function App() {
               <div style={{ marginTop: 26 }}>
                 <h3 style={{ marginBottom: 5 }}>Activités de démonstration</h3>
                 <p style={{ color: '#a4a4ad', fontSize: 12, marginTop: 0 }}>Exemples fictifs pour découvrir le journal sportif. Rien n'est ajouté à ton compte.</p>
-                {[
-                  { sport: '🏃‍♀️ Course à pied', title: 'Running du matin', duration: 3120, distance: 8.42, elevation: 85, author: 'Emma' },
-                  { sport: '⛰️ Trail', title: 'Sortie en montagne', duration: 7260, distance: 16.8, elevation: 780, author: 'Noah' },
-                  { sport: '🚴 Vélo', title: 'Boucle du dimanche', duration: 5400, distance: 34.6, elevation: 420, author: 'Lucas' },
-                  { sport: '🥾 Randonnée', title: 'Randonnée panoramique', duration: 9600, distance: 11.2, elevation: 610, author: 'Clara' }
-                ].map(demo => {
-                  const pace = demo.duration / demo.distance
-                  return <article key={demo.title} style={{ ...cardStyle, marginTop: 12, borderColor: '#3d3e49' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}><strong>{demo.title}</strong><span style={{ color: '#ff8a4b', fontSize: 11, fontWeight: 700 }}>DÉMO</span></div>
-                    <p style={{ color: '#a4a4ad', fontSize: 13 }}>{demo.author} · {demo.sport}</p>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, fontSize: 14 }}><span>↗ {demo.distance.toFixed(2)} km</span><span>⏱ {formatActivityTime(demo.duration)}</span><span>⛰ +{demo.elevation} m</span></div>
-                    {!hidePace && (demo.sport.includes('Course') || demo.sport.includes('Trail')) ? <p style={{ fontSize: 12, color: '#a4a4ad' }}>Allure moyenne : {Math.floor(pace / 60)}:{String(Math.round(pace % 60)).padStart(2, '0')} /km</p> : null}
+                {demoActivities.map(demo => {
+                  const visibleRoute = privacyRoute(demo.route ?? [], hideStartMeters, hideEndMeters)
+                  const pace = demo.duration_seconds / (demo.distance_km || 1)
+                  return <article key={demo.id} style={{ ...cardStyle, marginTop: 12, borderColor: '#3d3e49' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                      <div><strong>{demo.title}</strong><span style={{ color: '#ff8a4b', fontSize: 10, fontWeight: 700, marginLeft: 8 }}>DÉMO</span></div>
+                      <ActivityShare activity={demo} startMeters={hideStartMeters} endMeters={hideEndMeters} hidePace={hidePace} />
+                    </div>
+                    <p style={{ color: '#a4a4ad', fontSize: 13 }}>{demo.sport} · Parcours fictif</p>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, fontSize: 14 }}>
+                      <span>↗ {demo.distance_km?.toFixed(2)} km</span>
+                      <span>⏱ {formatActivityTime(demo.duration_seconds)}</span>
+                      <span>⛰ +{demo.elevation_m} m</span>
+                    </div>
+                    {!hidePace && demo.distance_km !== null && <p style={{ fontSize: 12, color: '#a4a4ad' }}>Allure moyenne : {Math.floor(pace / 60)}:{String(Math.round(pace % 60)).padStart(2, '0')} /km</p>}
+                    {visibleRoute.length > 1 ? <ActivityMap points={visibleRoute} height={220} /> : <p style={{ color: '#a4a4ad', fontSize: 12 }}>Parcours masqué par les réglages de confidentialité.</p>}
                   </article>
                 })}
               </div>
