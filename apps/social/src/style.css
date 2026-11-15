@@ -458,3 +458,94 @@ button {
     font-size: 20px;
   }
 }
+
+
+/* ==========================================================
+   MATCHFIT SOCIAL — Responsive + zones de sécurité iOS/Android
+   Ajout non destructif : conserve les styles existants.
+   ========================================================== */
+:root {
+  --mf-safe-top: env(safe-area-inset-top, 0px);
+  --mf-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --mf-safe-left: env(safe-area-inset-left, 0px);
+  --mf-safe-right: env(safe-area-inset-right, 0px);
+}
+
+html {
+  width: 100%;
+  min-height: 100%;
+  -webkit-text-size-adjust: 100%;
+}
+
+body, #root {
+  min-height: 100%;
+  width: 100%;
+}
+
+.app {
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding-top: var(--mf-safe-top);
+  padding-left: max(16px, var(--mf-safe-left));
+  padding-right: max(16px, var(--mf-safe-right));
+  padding-bottom: calc(100px + var(--mf-safe-bottom));
+}
+
+.topbar {
+  min-height: 75px;
+  height: auto;
+  padding-block: 12px;
+  gap: 8px;
+}
+
+.topbar .logo {
+  min-width: 0;
+  font-size: clamp(21px, 6vw, 27px);
+  line-height: 1.15;
+}
+
+.topbar-actions {
+  flex-shrink: 0;
+}
+
+.bottom-nav {
+  box-sizing: border-box;
+  min-height: calc(75px + var(--mf-safe-bottom));
+  padding-top: 10px;
+  padding-bottom: calc(10px + var(--mf-safe-bottom));
+  padding-left: max(8px, var(--mf-safe-left));
+  padding-right: max(8px, var(--mf-safe-right));
+}
+
+.creation-overlay {
+  padding-top: var(--mf-safe-top);
+}
+
+.creation-panel {
+  max-height: calc(100dvh - var(--mf-safe-top));
+  padding-bottom: calc(30px + var(--mf-safe-bottom));
+  overscroll-behavior: contain;
+}
+
+img, video, canvas, svg {
+  max-width: 100%;
+}
+
+input, textarea, select {
+  max-width: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 380px) {
+  .app {
+    padding-left: max(12px, var(--mf-safe-left));
+    padding-right: max(12px, var(--mf-safe-right));
+  }
+  .topbar { gap: 6px; }
+  .topbar .logo { font-size: 22px; }
+}
+
+@media (min-width: 768px) {
+  .app { max-width: 520px; }
+}
