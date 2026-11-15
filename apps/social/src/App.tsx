@@ -313,7 +313,7 @@ function App() {
   const [activities, setActivities] = useState<Activity[]>([])
   const [activityLoading, setActivityLoading] = useState(false)
   const [activityError, setActivityError] = useState('')
-  const [activityMode, setActivityMode] = useState<'list' | 'manual' | 'gps'>('list')
+  const [activityMode, setActivityMode] = useState<'list' | 'manual' | 'choose' | 'gps'>('list')
   const [activitySport, setActivitySport] = useState('Course à pied')
   const [activityTitle, setActivityTitle] = useState('')
   const [activityDate, setActivityDate] = useState(new Date().toISOString().slice(0, 10))
@@ -1753,9 +1753,8 @@ function App() {
           <h2>Mes activités</h2>
           {activityMode === 'list' ? (
             <>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 22 }}>
-                <button type="button" style={primaryStyle} onClick={() => { setActivityError(''); setActivityMode('manual') }}>＋ Ajouter une activité</button>
-                <button type="button" style={{ ...primaryStyle, background: '#24252e', border: '1px solid #444550' }} onClick={() => { setActivityError(''); setActivityMode('gps') }}>⌖ Enregistrer GPS</button>
+              <div style={{ marginBottom: 22 }}>
+                <button type="button" style={primaryStyle} onClick={() => { setActivityError(''); setActivityMode('choose') }}>＋ Enregistrer une activité</button>
               </div>
               {activityLoading && <p>Chargement de tes activités...</p>}
               {!activityLoading && activities.length === 0 && !activityError && <p style={{ color: '#a4a4ad' }}>Aucune activité pour le moment. Enregistre ta première séance !</p>}
@@ -1787,10 +1786,27 @@ function App() {
                 })}
               </div>
             </>
+          ) : activityMode === 'choose' ? (
+            <div style={cardStyle}>
+              <button type="button" style={{ ...linkStyle, paddingLeft: 0 }} onClick={() => setActivityMode('list')}>← Retour aux activités</button>
+              <h3>Choisir un sport</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
+                {[
+                  ['🏃', 'Course à pied'], ['⛰️', 'Trail'], ['🚴', 'Vélo'],
+                  ['🚶', 'Marche'], ['🥾', 'Randonnée'], ['🏋️', 'Musculation'],
+                  ['🏊', 'Natation'], ['💪', 'Fitness'], ['✨', 'Autre']
+                ].map(([emoji, sport]) => (
+                  <button key={sport} type="button" style={{ ...cardStyle, margin: 0, minHeight: 94, padding: 12, cursor: 'pointer', color: '#fff', textAlign: 'center', background: '#24252e', border: '1px solid #3d3e49' }} onClick={() => { setActivitySport(sport); setActivityTitle(''); setActivityError(''); setGpsError(''); setActivityMode('gps') }}>
+                    <span style={{ display: 'block', fontSize: 27, marginBottom: 8 }}>{emoji}</span>
+                    <span style={{ fontWeight: 700, fontSize: 13 }}>{sport}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
           ) : (
             <div style={cardStyle}>
               <button type="button" style={{ ...linkStyle, paddingLeft: 0 }} onClick={() => { if (gpsStatus === 'running') { setActivityError('Mets le GPS en pause avant de quitter.'); return } setActivityMode('list') }}>← Retour aux activités</button>
-              <h3>{activityMode === 'manual' ? 'Ajouter une activité' : 'Enregistrement GPS'}</h3>
+              <h3>Enregistrement GPS · {activitySport}</h3>
               <label>Sport<select style={fieldStyle} value={activitySport} onChange={event => setActivitySport(event.target.value)}>{['Course à pied', 'Trail', 'Marche', 'Randonnée', 'Vélo', 'Musculation', 'Natation', 'Fitness', 'Autre'].map(sport => <option key={sport}>{sport}</option>)}</select></label>
               <label>Titre<input style={fieldStyle} value={activityTitle} onChange={event => setActivityTitle(event.target.value)} placeholder="Ma séance du jour" maxLength={100} /></label>
               {activityMode === 'manual' ? <>
