@@ -1757,7 +1757,6 @@ function App() {
                 <button type="button" style={primaryStyle} onClick={() => { setActivityError(''); setActivityMode('manual') }}>＋ Ajouter une activité</button>
                 <button type="button" style={{ ...primaryStyle, background: '#24252e', border: '1px solid #444550' }} onClick={() => { setActivityError(''); setActivityMode('gps') }}>⌖ Enregistrer GPS</button>
               </div>
-              <ActivityMap height={310} />
               {activityLoading && <p>Chargement de tes activités...</p>}
               {!activityLoading && activities.length === 0 && !activityError && <p style={{ color: '#a4a4ad' }}>Aucune activité pour le moment. Enregistre ta première séance !</p>}
               {activities.map(activity => <article key={activity.id} style={{ ...cardStyle, marginTop: 12 }}>
