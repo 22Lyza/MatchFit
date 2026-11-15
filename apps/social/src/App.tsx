@@ -211,6 +211,10 @@ function App() {
   const [followRequested, setFollowRequested] = useState(false)
   const [followRequests, setFollowRequests] = useState<{ follower_id: string; username: string }[]>([])
   const [privacyByUser, setPrivacyByUser] = useState<Record<string, boolean>>({})
+  const [discoverSearch, setDiscoverSearch] = useState('')
+  const [discoverSport, setDiscoverSport] = useState('Tous')
+  const [discoverPeople, setDiscoverPeople] = useState<SocialProfile[]>([])
+  const [discoverPeopleError, setDiscoverPeopleError] = useState('')
   const [followBusy, setFollowBusy] = useState(false)
   const [followerCount, setFollowerCount] = useState(0)
   const [followingCount, setFollowingCount] = useState(0)
@@ -373,6 +377,36 @@ function App() {
       setPostsLoading(false)
     }
   }
+
+  useEffect(() => {
+    if (!session?.user.id || page !== 'decouvrir') return
+    let cancelled = false
+    async function loadDiscoverPeople() {
+      const { data, error } = await supabase.from('social_profiles')
+        .select('user_id, first_name, username, city, sports, bio, avatar_url, is_private')
+        .order('first_name', { ascending: true }).limit(300)
+      if (cancelled) return
+      if (error) setDiscoverPeopleError('Recherche indisponible : ' + error.message)
+      else { setDiscoverPeople((data ?? []) as SocialProfile[]); setDiscoverPeopleError('') }
+    }
+    void loadDiscoverPeople()
+    return () => { cancelled = true }
+  }, [session?.user.id, page])
+
+  const normalizedDiscoverSearch = discoverSearch.trim().toLocaleLowerCase('fr')
+  const matchesDiscover = (person: SocialProfile) => {
+    const sportMatches = discoverSport === 'Tous' || (person.sports || []).some(sport => sport.toLocaleLowerCase('fr').includes(discoverSport.toLocaleLowerCase('fr')))
+    const textMatches = !normalizedDiscoverSearch || [person.first_name, person.username || '', person.city, ...(person.sports || [])]
+      .some(value => value.toLocaleLowerCase('fr').includes(normalizedDiscoverSearch))
+    return sportMatches && textMatches
+  }
+  const discoverMatches = discoverPeople.filter(person => person.user_id !== session?.user.id && matchesDiscover(person))
+  const discoverVisiblePosts = posts.filter(post => {
+    if (post.user_id === session?.user.id || privacyByUser[post.user_id]) return false
+    if (discoverSport === 'Tous' && !normalizedDiscoverSearch) return true
+    const person = discoverPeople.find(item => item.user_id === post.user_id)
+    return !!person && matchesDiscover(person)
+  })
 
   async function publishPost(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -1409,7 +1443,7 @@ function App() {
 
           {postsLoading && <p>Chargement des publications...</p>}
           {postsError && <p role="alert" style={{ color: '#ff7777' }}>{postsError}</p>}
-          {!postsLoading && posts.filter(post => post.user_id !== session.user.id && !privacyByUser[post.user_id]).length === 0 && !postsError && (
+          {!postsLoading && discoverVisiblePosts.length === 0 && !postsError && (
             <div style={cardStyle}>
               <p>Aucune publication des autres sportifs pour le moment.</p>
             </div>
@@ -1461,9 +1495,37 @@ function App() {
           <h2 style={{ fontSize: 18, lineHeight: 1.3, marginBottom: 14 }}>Découvrir</h2>
           {postsLoading && <p>Chargement des publications...</p>}
           {postsError && <p role="alert" style={{ color: '#ff7777' }}>{postsError}</p>}
-          <p style={{ color: '#a4a4ad', fontSize: 13 }}>Explore les publications des comptes publics.</p>
+          <p style={{ color: '#a4a4ad', fontSize: 13 }}>Explore les publications des comptes publics et retrouve d'autres sportifs.</p>
+          <label htmlFor="discover-search" style={{ display: 'block', fontSize: 13, marginTop: 15 }}>Rechercher un sportif, un pseudo, une ville ou un sport</label>
+          <input id="discover-search" type="search" value={discoverSearch} onChange={event => setDiscoverSearch(event.target.value)}
+            placeholder="Ex. running, Lausanne, @pseudo..." style={{ ...fieldStyle, marginBottom: 10 }} />
+          <div aria-label="Filtrer par sport" style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginBottom: 18 }}>
+            {['Tous', 'Running', 'Musculation', 'Trail', 'Fitness', 'Cyclisme', 'Yoga'].map(sport => (
+              <button key={sport} type="button" aria-pressed={discoverSport === sport} onClick={() => setDiscoverSport(sport)}
+                style={{ border: '1px solid ' + (discoverSport === sport ? '#ff8a4b' : '#41424b'), borderRadius: 22, padding: '8px 11px',
+                  background: discoverSport === sport ? '#ff6558' : '#24252e', color: '#fff', cursor: 'pointer', fontSize: 12 }}>{sport}</button>
+            ))}
+          </div>
+          {discoverPeopleError && <p role="alert" style={{ color: '#ff7777', fontSize: 12 }}>{discoverPeopleError}</p>}
+          {(normalizedDiscoverSearch || discoverSport !== 'Tous') && <>
+            <h3 style={{ fontSize: 15, marginBottom: 10 }}>Sportifs ({discoverMatches.length})</h3>
+            {discoverMatches.slice(0, 30).map(person => (
+              <button type="button" key={person.user_id} onClick={() => void openMemberProfile(person.user_id)}
+                style={{ display: 'flex', width: '100%', gap: 12, alignItems: 'center', textAlign: 'left', padding: '10px 4px',
+                  background: 'transparent', border: 'none', borderBottom: '1px solid #30313b', color: '#fff', cursor: 'pointer' }}>
+                <span style={{ width: 43, height: 43, borderRadius: '50%', overflow: 'hidden', background: '#24252e',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  {person.avatar_url ? <img src={person.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : (person.first_name?.[0] || 'M').toUpperCase()}
+                </span>
+                <span style={{ flex: 1, minWidth: 0 }}><strong style={{ display: 'block', fontSize: 14 }}>{person.username ? '@' + person.username.replace(/^@/, '') : person.first_name || 'Sportif'}</strong>
+                  <span style={{ color: '#a4a4ad', fontSize: 12 }}>{[person.city, ...(person.sports || [])].filter(Boolean).join(' · ')}</span></span>
+                <span aria-label={person.is_private ? 'Compte privé' : 'Compte public'}>{person.is_private ? '🔒' : '›'}</span>
+              </button>
+            ))}
+          </>}
+          <h3 style={{ fontSize: 15, marginTop: 22, marginBottom: 8 }}>Publications ({discoverVisiblePosts.length})</h3>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 3, marginTop: 16 }}>
-            {posts.filter(post => post.user_id !== session.user.id && !privacyByUser[post.user_id]).map(post => (
+            {discoverVisiblePosts.map(post => (
               <button key={post.id} type="button" aria-label={'Ouvrir la publication : ' + (post.caption || 'Sans description')}
                 onClick={() => { setOwnPostMenuOpen(null); setSelectedPost(post) }}
                 style={{ display: 'block', width: '100%', aspectRatio: '1 / 1', padding: 0, border: 'none', background: '#24252e', overflow: 'hidden', position: 'relative', cursor: 'pointer' }}>
@@ -1480,7 +1542,7 @@ function App() {
               </button>
             ))}
           </div>
-          {!postsLoading && posts.filter(post => post.user_id !== session.user.id && !privacyByUser[post.user_id]).length === 0 &&
+          {!postsLoading && discoverVisiblePosts.length === 0 &&
             <p style={{ color: '#a4a4ad' }}>Aucune publication publique pour le moment.</p>}
 
         </section>
