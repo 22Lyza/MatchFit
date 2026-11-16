@@ -320,7 +320,7 @@ type Page = 'accueil' | 'decouvrir' | 'activites' | 'messages' | 'profil' | 'reg
 type Activity = { id: string; user_id: string; sport: string; title: string; started_at: string; duration_seconds: number; distance_km: number | null; elevation_m: number | null; notes: string; source: 'manual' | 'gps'; route: { lat: number; lng: number }[] | null; created_at: string }
 type MatchStory = { id: string; user_id: string; media_path: string; media_type: 'image' | 'video'; created_at: string; expires_at: string; is_highlight: boolean }
 type StoryView = MatchStory & { url: string; author: string; avatar: string | null }
-type CreationType = 'story' | 'publication'
+type CreationType = 'story' | 'publication' | 'reel'
 type AuthMode = 'connexion' | 'inscription' | 'oubli'
 
 type SocialPost = {
@@ -495,6 +495,101 @@ function useStableIphoneViewport() {
   }, [])
 }
 
+function MatchFitCamera({ onCapture, onClose, mode, onMode }: {
+  onCapture: (file: File) => void; onClose: () => void;
+  mode: 'story' | 'publication' | 'reel'; onMode: (mode: 'story' | 'publication' | 'reel') => void
+}) {
+  const previewRef = useRef<HTMLVideoElement | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const recorderRef = useRef<MediaRecorder | null>(null)
+  const chunksRef = useRef<Blob[]>([])
+  const holdTimerRef = useRef<number | null>(null)
+  const holdingRef = useRef(false)
+  const recordingRef = useRef(false)
+  const [recording, setRecording] = useState(false)
+  const [error, setError] = useState('')
+  const [facing, setFacing] = useState<'user' | 'environment'>('environment')
+  const galleryRef = useRef<HTMLInputElement | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    async function start() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facing } }, audio: true })
+        if (cancelled) { stream.getTracks().forEach(t => t.stop()); return }
+        streamRef.current = stream
+        if (previewRef.current) { previewRef.current.srcObject = stream; void previewRef.current.play().catch(() => {}) }
+        setError('')
+      } catch { if (!cancelled) setError('Autorise la caméra et le micro dans les réglages de ton iPhone.') }
+    }
+    void start()
+    return () => {
+      cancelled = true
+      if (holdTimerRef.current !== null) window.clearTimeout(holdTimerRef.current)
+      if (recorderRef.current?.state === 'recording') recorderRef.current.stop()
+      streamRef.current?.getTracks().forEach(t => t.stop())
+      streamRef.current = null
+    }
+  }, [facing])
+  function takePhoto() {
+    const video = previewRef.current
+    if (!video || !video.videoWidth) return
+    const canvas = document.createElement('canvas')
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight
+    canvas.getContext('2d')?.drawImage(video, 0, 0)
+    canvas.toBlob(blob => { if (blob) onCapture(new File([blob], `matchfit-${Date.now()}.jpg`, { type: 'image/jpeg' })) }, 'image/jpeg', .9)
+  }
+  function startRecording() {
+    const stream = streamRef.current
+    if (!stream || !('MediaRecorder' in window)) { setError('Enregistrement vidéo indisponible sur cet appareil.'); return }
+    const mime = ['video/mp4', 'video/mp4;codecs=h264,aac', 'video/webm;codecs=vp8,opus'].find(type => MediaRecorder.isTypeSupported(type))
+    if (!mime || !mime.startsWith('video/mp4')) { setError('Ce téléphone ne permet pas l’enregistrement MP4 direct. Utilise la galerie pour importer une vidéo.'); return }
+    try {
+      const recorder = new MediaRecorder(stream, { mimeType: mime })
+      recorderRef.current = recorder; chunksRef.current = []
+      recorder.ondataavailable = event => { if (event.data.size) chunksRef.current.push(event.data) }
+      recorder.onstop = () => {
+        recordingRef.current = false; setRecording(false)
+        const blob = new Blob(chunksRef.current, { type: 'video/mp4' })
+        if (blob.size) onCapture(new File([blob], `matchfit-${Date.now()}.mp4`, { type: 'video/mp4' }))
+      }
+      recorder.start(); recordingRef.current = true; setRecording(true)
+    } catch { setError('Impossible de démarrer la vidéo. Vérifie les autorisations caméra et micro.') }
+  }
+  function pressStart() {
+    holdingRef.current = true
+    holdTimerRef.current = window.setTimeout(() => { if (holdingRef.current) startRecording() }, 350)
+  }
+  function pressEnd() {
+    holdingRef.current = false
+    if (holdTimerRef.current !== null) window.clearTimeout(holdTimerRef.current)
+    holdTimerRef.current = null
+    if (recordingRef.current) { if (recorderRef.current?.state === 'recording') recorderRef.current.stop() }
+    else takePhoto()
+  }
+  return <div style={{ position: 'fixed', inset: 0, zIndex: 4000, background: '#050506', display: 'flex', flexDirection: 'column', paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: 15, alignItems: 'center' }}>
+      <button type="button" onClick={onClose} style={{ background: 'transparent', border: 0, color: 'white', fontSize: 28 }}>×</button>
+      <strong>MATCH<span style={{ color: '#ff8a4b' }}>FIT</span></strong>
+      <button type="button" onClick={() => setFacing(value => value === 'user' ? 'environment' : 'user')} style={{ background: 'transparent', border: 0, color: 'white', fontSize: 23 }} aria-label="Retourner la caméra">↻</button>
+    </div>
+    <div style={{ flex: 1, minHeight: 0, background: '#14141a', position: 'relative' }}>
+      <video ref={previewRef} muted playsInline autoPlay style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+      {recording && <strong style={{ position: 'absolute', top: 20, left: 20, color: '#ff5a5a' }}>● REC</strong>}
+      {error && <p role="alert" style={{ position: 'absolute', bottom: 12, left: 12, right: 12, color: '#fff', background: '#7d2727', padding: 10, borderRadius: 8 }}>{error}</p>}
+    </div>
+    <div style={{ padding: '18px 20px 24px', display: 'grid', justifyItems: 'center', gap: 20 }}>
+      <div style={{ display: 'flex', gap: 24, justifyContent: 'center' }}>{(['story','publication','reel'] as const).map(value => <button key={value} type="button" onClick={() => onMode(value)} style={{ border: 0, background: 'transparent', color: mode === value ? '#ff8a4b' : '#bbb', fontWeight: mode === value ? 800 : 400, textTransform: 'uppercase', fontSize: 13 }}>{value === 'reel' ? 'Réel' : value}</button>)}</div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around', width: '100%' }}>
+        <button type="button" onClick={() => galleryRef.current?.click()} aria-label="Ouvrir la galerie" style={{ width: 49, height: 49, border: '2px solid white', borderRadius: 10, background: '#282830', color: 'white', fontSize: 22 }}>▧</button>
+        <button type="button" onPointerDown={pressStart} onPointerUp={pressEnd} onPointerCancel={() => { holdingRef.current = false; if (recordingRef.current) recorderRef.current?.stop() }} onContextMenu={e => e.preventDefault()} aria-label="Appuyer pour une photo, maintenir pour filmer" style={{ width: 78, height: 78, borderRadius: '50%', border: '6px solid white', background: recording ? '#ff5b52' : '#fff', boxShadow: 'inset 0 0 0 5px #333', touchAction: 'none' }} />
+        <div style={{ width: 49 }} />
+      </div>
+      <small style={{ color: '#aaa' }}>Appuie pour une photo · Maintiens pour filmer</small>
+      <input ref={galleryRef} type="file" accept="image/*,video/mp4" style={{ display: 'none' }} onChange={event => { const file = event.target.files?.[0]; if (file) onCapture(file) }} />
+    </div>
+  </div>
+}
+
 function App() {
   useStableIphoneViewport()
   const [session, setSession] = useState<Session | null>(null)
@@ -529,6 +624,8 @@ function App() {
   const [commentModal, setCommentModal] = useState<{ id: string; author: string; caption: string } | null>(null)
   const [interactionMessage, setInteractionMessage] = useState('')
   const [creationOpen, setCreationOpen] = useState(false)
+  const [cameraOpen, setCameraOpen] = useState(false)
+  const homeSwipeStart = useRef<{x:number;y:number}|null>(null)
   const [creationType, setCreationType] = useState<CreationType | null>(null)
   const [stories, setStories] = useState<StoryView[]>([])
   const [storyFile, setStoryFile] = useState<File | null>(null)
@@ -1114,6 +1211,7 @@ function App() {
   async function publishPost(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!session || !postFile || publishBusy) return
+    if (creationType === 'reel' && postFile.type !== 'video/mp4') { setPublishError('Un réel doit être une vidéo MP4.'); return }
 
     const allowed = ['image/jpeg', 'image/png', 'image/webp', 'video/mp4']
     if (!allowed.includes(postFile.type)) {
@@ -1868,6 +1966,16 @@ function App() {
     setCreationType(type)
     setCreationOpen(true)
   }
+  function openCamera(mode: CreationType = 'story') {
+    setCreationType(mode)
+    setCameraOpen(true)
+  }
+  function capturedMedia(file: File) {
+    if (creationType === 'story') setStoryFile(file)
+    else setPostFile(file)
+    setCameraOpen(false)
+    setCreationOpen(true)
+  }
 
   if (authLoading) {
     return (
@@ -2132,11 +2240,11 @@ function App() {
       </header>
 
       {page === 'accueil' && (
-        <section className="home">
+        <section className="home" onTouchStart={event => { homeSwipeStart.current = { x: event.touches[0].clientX, y: event.touches[0].clientY } }} onTouchEnd={event => { const start = homeSwipeStart.current; homeSwipeStart.current = null; if (!start || creationOpen || cameraOpen) return; const dx = event.changedTouches[0].clientX - start.x; const dy = event.changedTouches[0].clientY - start.y; if (dx > 90 && Math.abs(dx) > Math.abs(dy) * 1.5) openCamera('story') }}>
           <div className="stories">
             <div className="story" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
               <div style={{ position: 'relative', width: 68, height: 68 }}>
-                <div className="story-avatar" style={{ width: 64, height: 64, overflow: 'hidden', boxSizing: 'border-box' }}>
+                <div className="story-avatar" onClick={() => { const own = stories.filter(item => item.user_id === session.user.id && new Date(item.expires_at).getTime() > Date.now()); if (own.length) openStoryViewer(own); else openCamera('story') }} style={{ width: 64, height: 64, overflow: 'hidden', boxSizing: 'border-box', cursor: 'pointer', border: stories.some(item => item.user_id === session.user.id && new Date(item.expires_at).getTime() > Date.now()) ? '3px solid #ff8a4b' : 'none' }}>
                   {profile?.avatar_url ? (
                     <img src={profile.avatar_url} alt="Ma photo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   ) : (profile?.first_name?.[0]?.toUpperCase() || '♡')}
@@ -2144,7 +2252,7 @@ function App() {
                 <button
                   type="button"
                   aria-label="Ajouter une story"
-                  onClick={() => openCreation('story')}
+                  onClick={() => openCamera('story')}
                   style={{ position: 'absolute', right: -2, bottom: 0, width: 27, height: 27,
                     borderRadius: '50%', background: '#ff6558', border: '3px solid #0b0c10',
                     color: '#fff', fontSize: 19, fontWeight: 700, lineHeight: '20px',
@@ -3214,21 +3322,21 @@ function App() {
         </div>
       )}
 
+      {cameraOpen && <MatchFitCamera mode={creationType === 'reel' ? 'reel' : creationType === 'publication' ? 'publication' : 'story'} onMode={mode => setCreationType(mode)} onClose={() => setCameraOpen(false)} onCapture={capturedMedia} />}
       {creationOpen && (
         <div className="creation-overlay">
           <div className="creation-panel">
             <div className="creation-header">
-              <h2>{creationType === 'story' ? 'Nouvelle story' : creationType === 'publication' ? 'Nouvelle publication' : 'Créer sur MatchFit'}</h2>
+              <h2>{creationType === 'story' ? 'Nouvelle story' : creationType === 'publication' ? 'Nouvelle publication' : creationType === 'reel' ? 'Nouveau réel' : 'Créer sur MatchFit'}</h2>
               <button className="creation-close" onClick={closeCreation} disabled={publishBusy} aria-label="Fermer">✕</button>
             </div>
             {creationType === null ? (
               <div className="creation-options">
-                <button onClick={() => setCreationType('story')}>
+                <button onClick={() => openCamera('story')}>
                   <span>◉</span><strong>Story</strong><small>Partage un moment sportif</small>
                 </button>
-                <button onClick={() => setCreationType('publication')}>
-                  <span>▣</span><strong>Publication</strong><small>Photo, vidéo et performance</small>
-                </button>
+                <button onClick={() => openCamera('publication')}><span>▣</span><strong>Publication</strong><small>Photo, vidéo et performance</small></button>
+                <button onClick={() => openCamera('reel')}><span>▶</span><strong>Réel</strong><small>Vidéo verticale</small></button>
               </div>
             ) : creationType === 'story' ? (
               <div className="creation-form">
