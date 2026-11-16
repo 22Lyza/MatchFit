@@ -109,23 +109,6 @@ function privacyRoute(points: MapPoint[], startMeters: number, endMeters: number
   }
   return from < lastSafeIndex ? points.slice(from, lastSafeIndex + 1) : []
 }
-function weeklyStreak(activities: Activity[]) {
-  const monday = (date: Date) => {
-    const d = new Date(date.getFullYear(), date.getMonth(), date.getDate())
-    d.setDate(d.getDate() - ((d.getDay() + 6) % 7))
-    return Math.floor(d.getTime() / 86400000)
-  }
-  const weeks = new Set(activities.filter(a => Number.isFinite(new Date(a.started_at).getTime()) && new Date(a.started_at).getTime() <= Date.now()).map(a => monday(new Date(a.started_at))))
-  const today = monday(new Date())
-  let current = 0
-  let cursor = today // La série actuelle exige une activité cette semaine ; une ancienne semaine seule ne suffit pas.
-  while (weeks.has(cursor)) { current++; cursor -= 7 }
-  const ordered = [...weeks].sort((a, b) => a - b)
-  let record = 0, run = 0, last = Number.NaN
-  for (const week of ordered) { run = week - last === 7 ? run + 1 : 1; record = Math.max(record, run); last = week }
-  return { current, record, weeks, today }
-}
-
 function PrivacyDistanceControls({ startMeters, endMeters, setStartMeters, setEndMeters }: {
   startMeters: number; endMeters: number;
   setStartMeters: (meters: number) => void; setEndMeters: (meters: number) => void
@@ -1005,7 +988,14 @@ function App() {
     } finally { setDeletingActivityId(null) }
   }
 
-  const streak = weeklyStreak(activities)
+  // Compter uniquement les activités GPS réellement enregistrées, sans les démos.
+  const recordedGpsActivities = activities.filter(activity => activity.source === 'gps' && !activity.id.startsWith('demo-'))
+  const gpsActivityCount = recordedGpsActivities.length
+  const now = new Date()
+  const gpsActivitiesThisMonth = recordedGpsActivities.filter(activity => {
+    const date = new Date(activity.started_at)
+    return Number.isFinite(date.getTime()) && date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth()
+  }).length
 
   const gpsPace = gpsDistance > 0.01 && gpsSeconds > 0 ? Math.round(gpsSeconds / gpsDistance) : null
   const gpsPaceLabel = gpsPace !== null ? `${Math.floor(gpsPace / 60)}:${String(gpsPace % 60).padStart(2, '0')}` : '--:--'
@@ -2278,17 +2268,27 @@ function App() {
           <h2>Mon profil sportif</h2>
           <p>Ton espace sportif personnel.</p>
           <div style={{ ...cardStyle, borderColor: '#523728' }}>
-            <h3 style={{ marginTop: 0 }}>🔥 Ta régularité sportive</h3>
-            {activities.length === 0 && !activityLoading ? (
-              <p style={{ fontSize: 14, color: '#ffb18a', lineHeight: 1.5, marginBottom: 0 }}>✨ Chaque aventure commence par un premier pas. Enregistre ta première activité et lance ta régularité sportive !</p>
-            ) : (
-              <strong style={{ fontSize: 23, color: '#ff8a4b' }}>{streak.current > 0 ? `${streak.current} semaine${streak.current > 1 ? 's' : ''} d'affilée !` : 'Cette semaine, tout reste à accomplir ! 💪'}</strong>
-            )}
-            {activities.length > 0 && <p style={{ fontSize: 13, color: '#a4a4ad' }}>🏆 Record personnel : {streak.record} semaine{streak.record > 1 ? 's' : ''}</p>}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, minmax(0, 1fr))', gap: 7 }}>
-              {Array.from({ length: 12 }, (_, i) => streak.today - (11 - i) * 7).map((week, i) => <div key={week} title={`Semaine ${i + 1}`} style={{ textAlign: 'center', borderRadius: 8, padding: '10px 0', fontSize: 12, background: streak.weeks.has(week) ? '#533121' : '#292a32', color: streak.weeks.has(week) ? '#ff8a4b' : '#999' }}>{streak.weeks.has(week) ? '✓' : '·'}</div>)}
-            </div>
-            <p style={{ fontSize: 11, color: '#a4a4ad', marginBottom: 0 }}>12 dernières semaines · Une activité enregistrée cette semaine pour maintenir ta série</p>
+            <h3 style={{ marginTop: 0 }}>🏆 Mes activités sportives</h3>
+            {activityLoading ? <p style={{ color: '#a4a4ad' }}>Chargement des activités…</p> : <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
+                <div style={{ padding: 14, borderRadius: 12, background: '#24252e', textAlign: 'center' }}>
+                  <strong style={{ display: 'block', fontSize: 28, color: '#ff8a4b' }}>{gpsActivityCount}</strong>
+                  <span style={{ fontSize: 12, color: '#d4d4dc' }}>Activités réalisées</span>
+                </div>
+                <div style={{ padding: 14, borderRadius: 12, background: '#24252e', textAlign: 'center' }}>
+                  <strong style={{ display: 'block', fontSize: 28, color: '#ff8a4b' }}>{gpsActivitiesThisMonth}</strong>
+                  <span style={{ fontSize: 12, color: '#d4d4dc' }}>Ce mois-ci</span>
+                </div>
+              </div>
+              <p style={{ fontSize: 14, color: '#ffb18a', lineHeight: 1.5, marginBottom: 0 }}>
+                {gpsActivityCount === 0 ? '✨ Ta première activité t’attend ! Chaque effort compte. Lance-toi !' :
+                  gpsActivityCount >= 50 ? '🏆 50 activités ou plus ! Quelle constance !' :
+                  gpsActivityCount >= 10 ? '💪 Déjà 10 activités ou plus, continue comme ça !' :
+                  gpsActivityCount >= 5 ? '🔥 Déjà 5 activités ou plus, continue comme ça !' :
+                  gpsActivityCount === 1 ? '🎉 Bravo pour ta première activité !' :
+                  '🔥 Chaque activité te fait progresser, continue !'}
+              </p>
+            </>}
           </div>
 
           {profileLoading ? (
