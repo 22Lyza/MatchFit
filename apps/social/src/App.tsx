@@ -51,6 +51,24 @@ function distanceBetweenMeters(a: MapPoint, b: MapPoint): number {
   const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLng / 2) ** 2
   return 6371000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h))
 }
+// Atténue les points GPS isolés qui créent des dents de scie, sans arrondir
+// artificiellement les vrais angles. Ne modifie ni les distances ni les données stockées.
+function cleanDisplayedRoute(points: MapPoint[]): MapPoint[] {
+  if (points.length < 5) return points
+  return points.map((point, i) => {
+    if (i < 2 || i > points.length - 3) return point
+    const before = points[i - 1], after = points[i + 1]
+    const direct = distanceBetweenMeters(before, after)
+    const detour = distanceBetweenMeters(before, point) + distanceBetweenMeters(point, after)
+    // Un pic isolé : fort détour entre deux positions proches. Garder les
+    // virages plausibles et les sections à grande distance entre points.
+    if (direct > 35 || detour < 9 || detour < direct * 1.8) return point
+    const lat = (before.lat + after.lat) / 2
+    const lng = (before.lng + after.lng) / 2
+    return { lat: point.lat * 0.2 + lat * 0.8, lng: point.lng * 0.2 + lng * 0.8 }
+  })
+}
+
 function privacyRoute(points: MapPoint[], startMeters: number, endMeters: number, live = false): MapPoint[] {
   if (startMeters === 0 && endMeters === 0) return points
   if (points.length < 2) return []
@@ -149,7 +167,7 @@ function ActivityMap({ points = [], follow = false, height = 290 }: { points?: M
       }).addTo(instance)
       line.current = L.polyline([], { color: '#ff8a4b', weight: 5, opacity: 0.95 }).addTo(instance)
       if (latestPoints.current.length) {
-        const coords = latestPoints.current.map(point => [point.lat, point.lng] as [number, number])
+        const coords = cleanDisplayedRoute(latestPoints.current).map(point => [point.lat, point.lng] as [number, number])
         line.current.setLatLngs(coords)
         instance.fitBounds(coords, { padding: [24, 24], maxZoom: 16 })
       }
@@ -159,7 +177,7 @@ function ActivityMap({ points = [], follow = false, height = 290 }: { points?: M
   }, [])
   useEffect(() => {
     if (!map.current || !line.current || !window.L || !points.length) return
-    const coords = points.map(point => [point.lat, point.lng] as [number, number])
+    const coords = cleanDisplayedRoute(points).map(point => [point.lat, point.lng] as [number, number])
     line.current.setLatLngs(coords)
     const last = coords[coords.length - 1]
     if (!marker.current) marker.current = window.L.circleMarker(last, { radius: 7, color: '#fff', weight: 2, fillColor: '#ff8a4b', fillOpacity: 1 }).addTo(map.current)
@@ -207,7 +225,7 @@ function ActivityShare({ activity, startMeters, endMeters }: { activity: Activit
       const seconds = activity.duration_seconds
       const totalMinutes = Math.floor(seconds / 60)
       const duration = totalMinutes < 60 ? `${totalMinutes} minutes` : `${Math.floor(totalMinutes / 60)}h${String(totalMinutes % 60).padStart(2, '0')}`
-      const route = privacyRoute(activity.route ?? [], startMeters, endMeters)
+      const route = cleanDisplayedRoute(privacyRoute(activity.route ?? [], startMeters, endMeters))
       if (route.length > 1) {
         const lats = route.map(p => p.lat)
         const lngs = route.map(p => p.lng)
@@ -467,7 +485,33 @@ function EyeIcon({ visible }: { visible: boolean }) {
   )
 }
 
+function useStableIphoneViewport() {
+  useEffect(() => {
+    let viewport = document.querySelector<HTMLMetaElement>('meta[name="viewport"]')
+    if (!viewport) {
+      viewport = document.createElement('meta')
+      viewport.name = 'viewport'
+      document.head.appendChild(viewport)
+    }
+    viewport.content = 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover'
+    const style = document.createElement('style')
+    style.dataset.matchfitViewportFix = 'true'
+    style.textContent = `
+      html, body, #root { width: 100%; max-width: 100%; min-width: 0; margin: 0; overflow-x: clip; }
+      html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+      #root, #root > .app { box-sizing: border-box; max-width: 100%; min-width: 0; }
+      #root *, #root *::before, #root *::after { box-sizing: border-box; }
+      #root img, #root video, #root canvas { max-width: 100%; }
+      input, textarea, select { font-size: max(16px, 1em); }
+      .leaflet-container { max-width: 100%; touch-action: pan-x pan-y; }
+    `
+    document.head.appendChild(style)
+    return () => { style.remove() }
+  }, [])
+}
+
 function App() {
+  useStableIphoneViewport()
   const [session, setSession] = useState<Session | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [authBusy, setAuthBusy] = useState(false)
@@ -816,7 +860,7 @@ function App() {
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || !Number.isFinite(accuracy)) return
     setGpsAccuracy(accuracy)
     if (altitude !== null && Number.isFinite(altitude)) setGpsCurrentAltitude(altitude)
-    if (accuracy > 35 || accuracy <= 0) return
+    if (accuracy > 25 || accuracy <= 0) return
     const next = { lat: latitude, lng: longitude }
     const last = gpsLastPoint.current
     if (last) {
