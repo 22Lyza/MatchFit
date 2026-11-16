@@ -554,6 +554,8 @@ function App() {
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
 
   const [selectedPost, setSelectedPost] = useState<SocialPost | null>(null)
+  const [reelsMode, setReelsMode] = useState(false)
+  const reelsContainerRef = useRef<HTMLDivElement | null>(null)
   const [ownPostMenuOpen, setOwnPostMenuOpen] = useState<string | null>(null)
   const [viewedProfile, setViewedProfile] = useState<SocialProfile | null>(null)
   const [viewedProfileLoading, setViewedProfileLoading] = useState(false)
@@ -1472,6 +1474,28 @@ function App() {
     } catch (error) { setProfileError(error instanceof Error ? error.message : 'Action impossible.') }
   }
 
+  // Les vidéos du fil Découvrir ne jouent que lorsqu'elles sont visibles.
+  useEffect(() => {
+    if (!selectedPost || !reelsMode || !reelsContainerRef.current) return
+    const container = reelsContainerRef.current
+    const videos = Array.from(container.querySelectorAll<HTMLVideoElement>('video[data-reel-video]'))
+    const observer = new IntersectionObserver(entries => {
+      for (const entry of entries) {
+        const video = entry.target as HTMLVideoElement
+        if (entry.isIntersecting && entry.intersectionRatio >= 0.6) {
+          void video.play().catch(() => {})
+        } else {
+          video.pause()
+        }
+      }
+    }, { root: container, threshold: [0, 0.6, 1] })
+    videos.forEach(video => observer.observe(video))
+    return () => {
+      observer.disconnect()
+      videos.forEach(video => video.pause())
+    }
+  }, [selectedPost?.id, reelsMode])
+
   function renderPost(post: SocialPost, inPreview = false) {
     const author = authors[post.user_id]
     const authorName = author?.username ? '@' + author.username.replace(/^@/, '') : post.user_id === session?.user.id && profile?.username ? '@' + profile.username.replace(/^@/, '') : author?.first_name || 'Sportif MatchFit'
@@ -2128,7 +2152,7 @@ function App() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 3, marginTop: 16 }}>
             {discoverVisiblePosts.map(post => (
               <button key={post.id} type="button" aria-label={'Ouvrir la publication : ' + (post.caption || 'Sans description')}
-                onClick={() => { setOwnPostMenuOpen(null); setSelectedPost(post) }}
+                onClick={() => { setOwnPostMenuOpen(null); setReelsMode(true); setSelectedPost(post) }}
                 style={{ display: 'block', width: '100%', aspectRatio: '1 / 1', padding: 0, border: 'none', background: '#24252e', overflow: 'hidden', position: 'relative', cursor: 'pointer' }}>
                 {post.media_type === 'video' ? (
                   <>
@@ -2149,7 +2173,7 @@ function App() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 3 }}>
                 {discoverDemos.map(post => (
                   <button key={post.id} type="button" aria-label={'Ouvrir la publication démo : ' + post.caption}
-                    onClick={() => { setOwnPostMenuOpen(null); setSelectedPost(post) }}
+                    onClick={() => { setOwnPostMenuOpen(null); setReelsMode(true); setSelectedPost(post) }}
                     style={{ display: 'block', width: '100%', aspectRatio: '1 / 1', padding: 0, border: 'none', background: '#24252e', overflow: 'hidden', cursor: 'pointer' }}>
                     <img src={post.media_url} alt={post.caption} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                   </button>
@@ -2962,7 +2986,51 @@ function App() {
         </div>
       )}
 
-      {selectedPost && (
+      {selectedPost && reelsMode && (
+        <div role="dialog" aria-modal="true" aria-label="Vidéos Découvrir"
+          style={{ position: 'fixed', top: 'env(safe-area-inset-top, 0px)', bottom: 'calc(75px + env(safe-area-inset-bottom, 0px))',
+            left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 520, zIndex: 50,
+            background: '#0b0c10', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ flexShrink: 0, height: 65, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '0 16px', borderBottom: '1px solid #30313b', background: '#0b0c10' }}>
+            <strong style={{ fontSize: 27, fontWeight: 900, fontStyle: 'italic', letterSpacing: -1 }}>MATCH<span style={{ color: '#ff8a4b' }}>FIT</span></strong>
+            <button type="button" onClick={() => { setSelectedPost(null); setReelsMode(false); setPostMenu(null) }}
+              aria-label="Fermer les réels" style={{ border: 0, background: 'transparent', color: '#fff', fontSize: 27 }}>×</button>
+          </div>
+          <div ref={reelsContainerRef} style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden',
+            scrollSnapType: 'y mandatory', overscrollBehaviorY: 'contain', WebkitOverflowScrolling: 'touch' }}>
+            {(() => {
+              const all = [...discoverVisiblePosts, ...discoverDemos]
+              const index = all.findIndex(post => post.id === selectedPost.id)
+              const ordered = index < 0 ? [selectedPost] : [...all.slice(index), ...all.slice(0, index)]
+              return ordered.map(post => (
+                <section key={post.id} style={{ height: '100%', minHeight: '100%', scrollSnapAlign: 'start',
+                  scrollSnapStop: 'always', display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#0b0c10' }}>
+                  <div style={{ flex: 1, minHeight: 0, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: '#050506' }}>
+                    {post.media_type === 'video'
+                      ? <video data-reel-video="" src={post.media_url} playsInline muted loop preload="metadata"
+                          onClick={event => { const video = event.currentTarget; if (video.paused) void video.play(); else video.pause() }}
+                          style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                      : <img src={post.media_url} alt={post.caption || 'Publication'} loading="lazy"
+                          style={{ width: '100%', height: '100%', objectFit: 'contain' }} />}
+                    <span style={{ position: 'absolute', bottom: 12, right: 12, fontSize: 11, color: '#fff',
+                      background: 'rgba(0,0,0,.55)', padding: '5px 9px', borderRadius: 12 }}>↑ Glisse pour voir la suite</span>
+                  </div>
+                  <div style={{ flexShrink: 0, maxHeight: '36%', overflowY: 'auto', padding: '10px 14px 14px', background: '#0b0c10' }}>
+                    <p style={{ margin: '0 0 8px', fontSize: 13 }}>{post.caption}</p>
+                    {postInteractions(post.id, post.caption,
+                      authors[post.user_id]?.username ? '@' + authors[post.user_id].username!.replace(/^@/, '') : 'Sportif MatchFit',
+                      post.media_url, post.hide_like_count, post.comments_disabled)}
+                  </div>
+                </section>
+              ))
+            })()}
+          </div>
+        </div>
+      )}
+
+      {selectedPost && !reelsMode && (
         <div role="dialog" aria-modal="true" aria-label="Publication en grand"
           style={{ position: 'fixed', top: 'env(safe-area-inset-top, 0px)', bottom: 'calc(75px + env(safe-area-inset-bottom, 0px))', left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 520, zIndex: 50, background: '#0b0c10', overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch', boxSizing: 'border-box' }}>
           <div style={{ width: '100%', maxWidth: 520, margin: '0 auto', minHeight: '100%', background: '#0b0c10', overflowX: 'hidden' }}>
