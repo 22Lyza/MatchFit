@@ -91,6 +91,23 @@ function privacyRoute(points: MapPoint[], startMeters: number, endMeters: number
   }
   return from < lastSafeIndex ? points.slice(from, lastSafeIndex + 1) : []
 }
+function weeklyStreak(activities: Activity[]) {
+  const monday = (date: Date) => {
+    const d = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7))
+    return Math.floor(d.getTime() / 86400000)
+  }
+  const weeks = new Set(activities.map(a => monday(new Date(a.started_at))))
+  const today = monday(new Date())
+  let current = 0
+  let cursor = weeks.has(today) ? today : today - 7
+  while (weeks.has(cursor)) { current++; cursor -= 7 }
+  const ordered = [...weeks].sort((a, b) => a - b)
+  let record = 0, run = 0, last = Number.NaN
+  for (const week of ordered) { run = week - last === 7 ? run + 1 : 1; record = Math.max(record, run); last = week }
+  return { current, record, weeks, today }
+}
+
 function PrivacyDistanceControls({ startMeters, endMeters, setStartMeters, setEndMeters }: {
   startMeters: number; endMeters: number;
   setStartMeters: (meters: number) => void; setEndMeters: (meters: number) => void
@@ -109,7 +126,7 @@ function PrivacyDistanceControls({ startMeters, endMeters, setStartMeters, setEn
         onChange={event => setEndMeters(Number(event.target.value))} aria-label="Distance masquée à l'arrivée" />
       <span style={{ display: 'flex', justifyContent: 'space-between', color: '#a4a4ad', fontSize: 11 }}><span>0 m</span><span>1 km</span></span>
     </label>
-    <span style={{ color: '#a4a4ad', fontSize: 11 }}>0 m = aucun masquage. La distance totale reste inchangée. Les points GPS complets sont toujours enregistrés.</span>
+    <span style={{ color: '#a4a4ad', fontSize: 11 }}>0 m = aucun masquage. La distance totale reste inchangée. Les points masqués ne seront pas publiés.</span>
   </div>
 }
 function ActivityMap({ points = [], follow = false, height = 290 }: { points?: MapPoint[]; follow?: boolean; height?: number }) {
@@ -451,23 +468,6 @@ function EyeIcon({ visible }: { visible: boolean }) {
 }
 
 function App() {
-  // Verrouiller le zoom de l’interface dans la WebView iOS, sans bloquer le défilement.
-  useEffect(() => {
-    let viewport = document.querySelector<HTMLMetaElement>('meta[name="viewport"]')
-    if (!viewport) {
-      viewport = document.createElement('meta')
-      viewport.name = 'viewport'
-      document.head.appendChild(viewport)
-    }
-    viewport.setAttribute('content', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover')
-    const preventGestureZoom = (event: Event) => event.preventDefault()
-    document.addEventListener('gesturestart', preventGestureZoom, { passive: false })
-    document.addEventListener('gesturechange', preventGestureZoom, { passive: false })
-    return () => {
-      document.removeEventListener('gesturestart', preventGestureZoom)
-      document.removeEventListener('gesturechange', preventGestureZoom)
-    }
-  }, [])
   const [session, setSession] = useState<Session | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [authBusy, setAuthBusy] = useState(false)
@@ -544,7 +544,7 @@ function App() {
   const [activities, setActivities] = useState<Activity[]>([])
   const [activityLoading, setActivityLoading] = useState(false)
   const [activityError, setActivityError] = useState('')
-  const [activityMode, setActivityMode] = useState<'list' | 'manual' | 'choose' | 'gps'>('list')
+  const [activityMode, setActivityMode] = useState<'list' | 'manual' | 'choose' | 'gps' | 'preview'>('list')
   const [activitySport, setActivitySport] = useState('Course à pied')
   const [activityTitle, setActivityTitle] = useState('')
   const [activityDate, setActivityDate] = useState(new Date().toISOString().slice(0, 10))
@@ -553,6 +553,7 @@ function App() {
   const [activityElevation, setActivityElevation] = useState('')
   const [activityNotes, setActivityNotes] = useState('')
   const [activitySaving, setActivitySaving] = useState(false)
+  const [deletingActivityId, setDeletingActivityId] = useState<string | null>(null)
   const [gpsStatus, setGpsStatus] = useState<'idle' | 'running' | 'paused'>('idle')
   const [hideStartMeters, setHideStartMeters] = useState(200)
   const [hideEndMeters, setHideEndMeters] = useState(200)
@@ -768,7 +769,7 @@ function App() {
 
 
   useEffect(() => {
-    if (!session?.user.id || page !== 'activites') return
+    if (!session?.user.id || (page !== 'activites' && page !== 'profil')) return
     let cancelled = false
     async function fetchActivities() {
       setActivityLoading(true)
@@ -937,15 +938,30 @@ function App() {
       setActivityError('Vérifie la durée, la distance et le dénivelé.'); return
     }
     setActivitySaving(true); setActivityError('')
-    const payload = { user_id: session.user.id, sport: activitySport, title: activityTitle.trim() || 'Ma séance du jour', started_at: source === 'gps' ? (gpsSessionStartedAt.current || new Date().toISOString()) : new Date(activityDate + 'T12:00:00').toISOString(), duration_seconds: seconds, distance_km: distance, elevation_m: elevation, notes: activityNotes.trim(), source, route: source === 'gps' ? gpsPointsRef.current : null }
+    const payload = { user_id: session.user.id, sport: activitySport, title: activityTitle.trim() || 'Ma séance du jour', started_at: source === 'gps' ? (gpsSessionStartedAt.current || new Date().toISOString()) : new Date(activityDate + 'T12:00:00').toISOString(), duration_seconds: seconds, distance_km: distance, elevation_m: elevation, notes: activityNotes.trim(), source, route: source === 'gps' ? privacyRoute(gpsPointsRef.current, hideStartMeters, hideEndMeters) : null }
     const { data, error } = await supabase.from('social_activities').insert(payload).select('*').single()
     setActivitySaving(false)
     if (error) { setActivityError('Enregistrement impossible : ' + error.message); return }
     if (source === 'gps') { gpsStatusRef.current = 'idle'; await stopNativeGps() }
     setActivities(current => [data as Activity, ...current])
     setActivityMode('list'); setGpsStatus('idle'); setGpsPoints([]); setGpsDistance(0); setGpsSeconds(0); setGpsElevation(0); setGpsAltitudeSamples(0); setGpsAccuracy(null); setGpsCurrentAltitude(null); gpsLastAltitude.current = null; gpsLastPoint.current = null; gpsRunStartedAt.current = null; gpsElapsedMs.current = 0; gpsSessionStartedAt.current = null; gpsPointsRef.current = []; gpsDistanceRef.current = 0; gpsElevationRef.current = 0; gpsAltitudeSamplesRef.current = 0
-    setActivityTitle(''); setActivityMinutes(''); setActivityDistance(''); setActivityElevation(''); setActivityNotes('')
+    setActivityTitle(''); setActivityMinutes(''); setActivityDistance(''); setActivityElevation(''); setActivityNotes(''); setHideStartMeters(200); setHideEndMeters(200); setHidePace(false)
   }
+
+  async function deleteActivity(activity: Activity) {
+    if (!session || deletingActivityId || !window.confirm(`Supprimer définitivement « ${activity.title} » ?`)) return
+    setDeletingActivityId(activity.id)
+    setActivityError('')
+    try {
+      const { error } = await supabase.from('social_activities').delete().eq('id', activity.id).eq('user_id', session.user.id)
+      if (error) throw error
+      setActivities(current => current.filter(item => item.id !== activity.id))
+    } catch (error) {
+      setActivityError(error instanceof Error ? `Suppression impossible : ${error.message}` : 'Suppression impossible.')
+    } finally { setDeletingActivityId(null) }
+  }
+
+  const streak = weeklyStreak(activities)
 
   const gpsPace = gpsDistance > 0.01 && gpsSeconds > 0 ? Math.round(gpsSeconds / gpsDistance) : null
   const gpsPaceLabel = gpsPace !== null ? `${Math.floor(gpsPace / 60)}:${String(gpsPace % 60).padStart(2, '0')}` : '--:--'
@@ -2036,7 +2052,7 @@ function App() {
         <section className="placeholder-page" style={{ marginTop: -28 }}>
 
           <label htmlFor="member-search" style={{ display: 'block', fontSize: 13, marginTop: 15 }}>Rechercher un sportif</label>
-          <input id="member-search" type="search" value={discoverSearch}
+          <input id="member-search" type="search" autoFocus value={discoverSearch}
             onChange={event => setDiscoverSearch(event.target.value)}
             placeholder="Pseudo, prénom, ville ou sport..." style={{ ...fieldStyle, marginBottom: 18 }} />
           {discoverPeopleError && <p role="alert" style={{ color: '#ff7777', fontSize: 12 }}>{discoverPeopleError}</p>}
@@ -2106,32 +2122,28 @@ function App() {
               <div style={{ marginBottom: 22 }}>
                 <button type="button" style={primaryStyle} onClick={() => { setActivityError(''); setActivityMode('choose') }}>＋ Enregistrer une activité</button>
               </div>
-              <div style={{ ...cardStyle, marginTop: 8, marginBottom: 16, padding: 14 }}>
-                <strong>Confidentialité et affichage</strong>
-                <PrivacyDistanceControls startMeters={hideStartMeters} endMeters={hideEndMeters} setStartMeters={setHideStartMeters} setEndMeters={setHideEndMeters} />
-                <label style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 10, fontSize: 13 }}><input type="checkbox" checked={hidePace} onChange={event => setHidePace(event.target.checked)} /> Masquer mon allure moyenne</label>
-              </div>
               {activityLoading && <p>Chargement de tes activités...</p>}
               {!activityLoading && activities.length === 0 && !activityError && <p style={{ color: '#a4a4ad' }}>Aucune activité pour le moment. Enregistre ta première séance !</p>}
               {activities.map(activity => <article key={activity.id} style={{ ...cardStyle, marginTop: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}><strong>{activity.title}</strong><ActivityShare activity={activity} startMeters={hideStartMeters} endMeters={hideEndMeters} /></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}><strong>{activity.title}</strong><ActivityShare activity={activity} startMeters={0} endMeters={0} /></div>
                 <p style={{ color: '#a4a4ad', fontSize: 13 }}>{activity.sport} · {new Date(activity.started_at).toLocaleDateString('fr-CH')}</p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, fontSize: 14 }}><span>⏱ {formatActivityTime(activity.duration_seconds)}</span>{activity.distance_km !== null && <span>↗ {activity.distance_km.toFixed(2)} km</span>}{activity.elevation_m !== null && <span>⛰ {activity.elevation_m} m</span>}</div>
-                {!hidePace && activity.distance_km !== null && activity.distance_km > 0 && <p style={{ fontSize: 12, color: '#a4a4ad' }}>Allure moyenne : {Math.floor(activity.duration_seconds / 60 / activity.distance_km)}:{String(Math.round(activity.duration_seconds / activity.distance_km) % 60).padStart(2, '0')} /km</p>}
+                {activity.distance_km !== null && activity.distance_km > 0 && <p style={{ fontSize: 12, color: '#a4a4ad' }}>Allure moyenne : {Math.floor(activity.duration_seconds / 60 / activity.distance_km)}:{String(Math.round(activity.duration_seconds / activity.distance_km) % 60).padStart(2, '0')} /km</p>}
                 {activity.notes && <p style={{ fontSize: 13 }}>{activity.notes}</p>}
                 {activity.source === 'gps' && <p style={{ color: '#a4a4ad', fontSize: 12 }}>Parcours enregistré : {activity.route?.length ?? 0} points GPS</p>}
-                {activity.source === 'gps' && activity.route && activity.route.length > 0 && (privacyRoute(activity.route, hideStartMeters, hideEndMeters).length ? <ActivityMap points={privacyRoute(activity.route, hideStartMeters, hideEndMeters)} height={220} /> : <p style={{ color: '#a4a4ad', fontSize: 12 }}>Parcours masqué pour protéger les lieux de départ et d’arrivée.</p>)}
+                {activity.source === 'gps' && activity.route && activity.route.length > 0 && (activity.route.length ? <ActivityMap points={activity.route} height={220} /> : <p style={{ color: '#a4a4ad', fontSize: 12 }}>Parcours masqué pour protéger les lieux de départ et d’arrivée.</p>)}
+                <button type="button" disabled={deletingActivityId === activity.id} onClick={() => void deleteActivity(activity)} style={{ ...linkStyle, color: '#ff7777', paddingLeft: 0, marginTop: 8 }}>{deletingActivityId === activity.id ? 'Suppression…' : 'Supprimer cette activité'}</button>
               </article>)}
               <div style={{ marginTop: 26 }}>
                 <h3 style={{ marginBottom: 5 }}>Activités de démonstration</h3>
                 <p style={{ color: '#a4a4ad', fontSize: 12, marginTop: 0 }}>Exemples fictifs pour découvrir le journal sportif. Rien n'est ajouté à ton compte.</p>
                 {demoActivities.map(demo => {
-                  const visibleRoute = privacyRoute(demo.route ?? [], hideStartMeters, hideEndMeters)
+                  const visibleRoute = demo.route ?? []
                   const pace = demo.duration_seconds / (demo.distance_km || 1)
                   return <article key={demo.id} style={{ ...cardStyle, marginTop: 12, borderColor: '#3d3e49' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                       <div><strong>{demo.title}</strong><span style={{ color: '#ff8a4b', fontSize: 10, fontWeight: 700, marginLeft: 8 }}>DÉMO</span></div>
-                      <ActivityShare activity={demo} startMeters={hideStartMeters} endMeters={hideEndMeters} />
+                      <ActivityShare activity={demo} startMeters={0} endMeters={0} />
                     </div>
                     <p style={{ color: '#a4a4ad', fontSize: 13 }}>{demo.sport} · Parcours fictif</p>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, fontSize: 14 }}>
@@ -2145,6 +2157,21 @@ function App() {
                 })}
               </div>
             </>
+          ) : activityMode === 'preview' ? (
+            <div style={cardStyle}>
+              <button type="button" style={{ ...linkStyle, paddingLeft: 0 }} onClick={() => setActivityMode('gps')}>← Retour à l’enregistrement</button>
+              <h3>Récapitulatif · {activitySport}</h3>
+              <p>{activityTitle.trim() || 'Ma séance du jour'}</p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 15, marginBottom: 14 }}>
+                <strong>↗ {gpsDistance.toFixed(2)} km</strong><strong>⏱ {formatActivityTime(gpsSeconds)}</strong><strong>⛰ +{Math.round(gpsElevation)} m</strong>
+              </div>
+              <h3>Confidentialité et affichage</h3>
+              <p style={{ color: '#a4a4ad', fontSize: 12 }}>Choisis les parties du parcours à masquer avant publication. Les points masqués ne seront pas enregistrés dans l'activité publiée.</p>
+              <PrivacyDistanceControls startMeters={hideStartMeters} endMeters={hideEndMeters} setStartMeters={setHideStartMeters} setEndMeters={setHideEndMeters} />
+              {gpsPoints.length > 1 && (privacyRoute(gpsPoints, hideStartMeters, hideEndMeters).length > 1 ? <ActivityMap points={privacyRoute(gpsPoints, hideStartMeters, hideEndMeters)} height={230} /> : <p style={{ color: '#a4a4ad' }}>Parcours entièrement masqué avec ces réglages.</p>)}
+              <button type="button" style={primaryStyle} disabled={activitySaving} onClick={() => void saveActivity('gps')}>{activitySaving ? 'Publication…' : 'Publier mon activité'}</button>
+              <p style={{ fontSize: 12, color: '#a4a4ad' }}>Après publication, la confidentialité ne sera plus modifiable. Tu pourras supprimer l'activité.</p>
+            </div>
           ) : activityMode === 'choose' ? (
             <div style={cardStyle}>
               <button type="button" style={{ ...linkStyle, paddingLeft: 0 }} onClick={() => setActivityMode('list')}>← Retour aux activités</button>
@@ -2168,17 +2195,12 @@ function App() {
               <h3>Enregistrement GPS · {activitySport}</h3>
               <label>Sport<select style={fieldStyle} value={activitySport} onChange={event => setActivitySport(event.target.value)}>{['Course à pied', 'Trail', 'Marche', 'Randonnée', 'Vélo', 'Musculation', 'Natation', 'Fitness', 'Autre'].map(sport => <option key={sport}>{sport}</option>)}</select></label>
               <label>Titre<input style={fieldStyle} value={activityTitle} onChange={event => setActivityTitle(event.target.value)} placeholder="Ma séance du jour" maxLength={100} /></label>
-              <div style={{ ...cardStyle, margin: '0 0 14px', padding: 12 }}>
-                <strong style={{ fontSize: 13 }}>Confidentialité de la carte</strong>
-                <PrivacyDistanceControls startMeters={hideStartMeters} endMeters={hideEndMeters} setStartMeters={setHideStartMeters} setEndMeters={setHideEndMeters} />
-                <label style={{ display: 'flex', gap: 9, marginTop: 9, fontSize: 13, alignItems: 'center' }}><input type="checkbox" checked={hidePace} onChange={event => setHidePace(event.target.checked)} /> Masquer mon allure</label>
-              </div>
               {activityMode === 'manual' ? <>
                 <label>Date<input type="date" style={fieldStyle} value={activityDate} onChange={event => setActivityDate(event.target.value)} required /></label>
                 <label>Durée (minutes)<input type="number" min="1" step="1" style={fieldStyle} value={activityMinutes} onChange={event => setActivityMinutes(event.target.value)} placeholder="45" /></label>
                 <label>Distance (km, facultatif)<input type="number" min="0" step="0.01" style={fieldStyle} value={activityDistance} onChange={event => setActivityDistance(event.target.value)} placeholder="8.5" /></label>
               </> : <div className="mf-gps-recorder">
-                <div className="mf-gps-map-wrap">{(hideStartMeters > 0 || hideEndMeters > 0) && privacyRoute(gpsPoints, hideStartMeters, hideEndMeters, true).length === 0 ? <div style={{ minHeight: 210, borderRadius: 14, background: '#24252e', display: 'grid', placeItems: 'center', padding: 20, textAlign: 'center', color: '#c4c4ce', fontSize: 13 }}>🔒 Position exacte masquée. La carte apparaîtra dès qu’une partie non masquée du parcours sera disponible.</div> : <ActivityMap points={(hideStartMeters > 0 || hideEndMeters > 0) ? privacyRoute(gpsPoints, hideStartMeters, hideEndMeters, true) : gpsPoints.length ? gpsPoints : gpsPreviewPosition ? [gpsPreviewPosition] : []} follow height={290} />}</div>
+                <div className="mf-gps-map-wrap"><ActivityMap points={gpsPoints.length ? gpsPoints : gpsPreviewPosition ? [gpsPreviewPosition] : []} follow height={290} /></div>
                 <div className="mf-gps-stats" aria-live="polite">
                   <div className="mf-gps-stat"><span>Distance</span><strong>{gpsDistance.toFixed(2)}</strong><small>km</small></div>
                   <div className="mf-gps-stat"><span>Durée</span><strong>{String(Math.floor(gpsSeconds / 3600)).padStart(2, '0')}:{String(Math.floor(gpsSeconds / 60) % 60).padStart(2, '0')}:{String(gpsSeconds % 60).padStart(2, '0')}</strong><small>h:min:s</small></div>
@@ -2191,7 +2213,7 @@ function App() {
               </div>}
               {activityMode === 'manual' && <label>Dénivelé positif (m, facultatif)<input type="number" min="0" step="1" style={fieldStyle} value={activityElevation} onChange={event => setActivityElevation(event.target.value)} /></label>}
               <label>Notes<textarea style={{ ...fieldStyle, minHeight: 85 }} value={activityNotes} onChange={event => setActivityNotes(event.target.value)} placeholder="Comment s'est passée la séance ?" /></label>
-              <button type="button" style={primaryStyle} disabled={activitySaving || (activityMode === 'gps' && (gpsStatus === 'running' || gpsStarting || gpsSeconds === 0))} onClick={() => void saveActivity(activityMode)}>{activitySaving ? 'Enregistrement...' : 'Enregistrer mon activité'}</button>
+              <button type="button" style={primaryStyle} disabled={activitySaving || (activityMode === 'gps' && (gpsStatus === 'running' || gpsStarting || gpsSeconds === 0))} onClick={() => setActivityMode('preview')}>{'Terminer et voir le récapitulatif'}</button>
             </div>
           )}
           {activityError && <p role="alert" style={{ color: '#ff7777' }}>{activityError}</p>}
@@ -2211,6 +2233,15 @@ function App() {
         <section className="placeholder-page">
           <h2>Mon profil sportif</h2>
           <p>Ton espace sportif personnel.</p>
+          <div style={{ ...cardStyle, borderColor: '#523728' }}>
+            <h3 style={{ marginTop: 0 }}>🔥 Ta régularité sportive</h3>
+            <strong style={{ fontSize: 23, color: '#ff8a4b' }}>{streak.current} semaine{streak.current > 1 ? 's' : ''} d'affilée !</strong>
+            <p style={{ fontSize: 13, color: '#a4a4ad' }}>🏆 Record personnel : {streak.record} semaine{streak.record > 1 ? 's' : ''}</p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, minmax(0, 1fr))', gap: 7 }}>
+              {Array.from({ length: 12 }, (_, i) => streak.today - (11 - i) * 7).map((week, i) => <div key={week} title={`Semaine ${i + 1}`} style={{ textAlign: 'center', borderRadius: 8, padding: '10px 0', fontSize: 12, background: streak.weeks.has(week) ? '#533121' : '#292a32', color: streak.weeks.has(week) ? '#ff8a4b' : '#999' }}>{streak.weeks.has(week) ? '✓' : '·'}</div>)}
+            </div>
+            <p style={{ fontSize: 11, color: '#a4a4ad', marginBottom: 0 }}>12 dernières semaines · 1 activité publiée par semaine suffit</p>
+          </div>
 
           {profileLoading ? (
             <p>Chargement du profil...</p>
