@@ -240,9 +240,9 @@ function ActivityShare({ activity, startMeters, endMeters }: { activity: Activit
       ctx.fillStyle = '#fff'
       ctx.font = 'bold 95px Arial, sans-serif'
       ctx.fillText(activity.distance_km === null ? '—' : `${activity.distance_km.toFixed(2).replace('.', ',')} km`, width / 2, 865)
-      ctx.font = 'bold 55px Arial, sans-serif'
-      ctx.fillText(duration, width / 2, 945)
-      let statY = 1010
+      ctx.font = 'bold 68px Arial, sans-serif'
+      ctx.fillText(duration, width / 2, 950)
+      let statY = 1030
       if (includePace && activity.distance_km !== null && activity.distance_km > 0 && seconds > 0) {
         const isBike = /vélo|velo|cyclisme|vtt|bike|cycling|bicyclette/i.test(activity.sport)
         const paceOrSpeed = isBike
@@ -251,12 +251,12 @@ function ActivityShare({ activity, startMeters, endMeters }: { activity: Activit
               const pace = Math.round(seconds / activity.distance_km!)
               return `${Math.floor(pace / 60)}:${String(pace % 60).padStart(2, '0')} /km`
             })()
-        ctx.font = 'bold 39px Arial, sans-serif'
+        ctx.font = 'bold 53px Arial, sans-serif'
         ctx.fillText(paceOrSpeed, width / 2, statY)
-        statY += 55
+        statY += 72
       }
       if (includeElevation && activity.elevation_m !== null) {
-        ctx.font = 'bold 34px Arial, sans-serif'
+        ctx.font = 'bold 49px Arial, sans-serif'
         ctx.fillText(`D+ ${Math.round(activity.elevation_m)} m`, width / 2, statY)
       }
 
@@ -2159,7 +2159,6 @@ function App() {
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, fontSize: 14 }}><span>⏱ {formatActivityTime(activity.duration_seconds)}</span>{activity.distance_km !== null && <span>↗ {activity.distance_km.toFixed(2)} km</span>}{activity.elevation_m !== null && <span>⛰ {activity.elevation_m} m</span>}</div>
                 {activity.distance_km !== null && activity.distance_km > 0 && <p style={{ fontSize: 12, color: '#a4a4ad' }}>Allure moyenne : {Math.floor(activity.duration_seconds / 60 / activity.distance_km)}:{String(Math.round(activity.duration_seconds / activity.distance_km) % 60).padStart(2, '0')} /km</p>}
                 {activity.notes && <p style={{ fontSize: 13 }}>{activity.notes}</p>}
-                {activity.source === 'gps' && <p style={{ color: '#a4a4ad', fontSize: 12 }}>Parcours enregistré : {activity.route?.length ?? 0} points GPS</p>}
                 {activity.source === 'gps' && activity.route && activity.route.length > 0 && (activity.route.length ? <ActivityMap points={activity.route} height={220} /> : <p style={{ color: '#a4a4ad', fontSize: 12 }}>Parcours masqué pour protéger les lieux de départ et d’arrivée.</p>)}
                 <button type="button" disabled={deletingActivityId === activity.id} onClick={() => void deleteActivity(activity)} style={{ ...linkStyle, color: '#ff7777', paddingLeft: 0, marginTop: 8 }}>{deletingActivityId === activity.id ? 'Suppression…' : 'Supprimer cette activité'}</button>
               </article>)}
