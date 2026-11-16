@@ -556,6 +556,7 @@ function App() {
   const [selectedPost, setSelectedPost] = useState<SocialPost | null>(null)
   const [reelsMode, setReelsMode] = useState(false)
   const reelsContainerRef = useRef<HTMLDivElement | null>(null)
+  const reelsTouchStart = useRef<{ x: number; y: number } | null>(null)
   const [ownPostMenuOpen, setOwnPostMenuOpen] = useState<string | null>(null)
   const [viewedProfile, setViewedProfile] = useState<SocialProfile | null>(null)
   const [viewedProfileLoading, setViewedProfileLoading] = useState(false)
@@ -2997,7 +2998,27 @@ function App() {
             <button type="button" onClick={() => { setSelectedPost(null); setReelsMode(false); setPostMenu(null) }}
               aria-label="Fermer les réels" style={{ border: 0, background: 'transparent', color: '#fff', fontSize: 27 }}>×</button>
           </div>
-          <div ref={reelsContainerRef} style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden',
+          <div ref={reelsContainerRef}
+            onTouchStart={event => {
+              const touch = event.touches[0]
+              reelsTouchStart.current = touch ? { x: touch.clientX, y: touch.clientY } : null
+            }}
+            onTouchEnd={event => {
+              const start = reelsTouchStart.current
+              reelsTouchStart.current = null
+              const touch = event.changedTouches[0]
+              if (!start || !touch) return
+              const dx = touch.clientX - start.x
+              const dy = touch.clientY - start.y
+              // Balayage vers la droite uniquement : ne pas gêner le défilement vertical des réels.
+              if (dx > 85 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+                setSelectedPost(null)
+                setReelsMode(false)
+                setPostMenu(null)
+              }
+            }}
+            onTouchCancel={() => { reelsTouchStart.current = null }}
+            style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden',
             scrollSnapType: 'y mandatory', overscrollBehaviorY: 'contain', WebkitOverflowScrolling: 'touch' }}>
             {(() => {
               const all = [...discoverVisiblePosts, ...discoverDemos]
@@ -3014,8 +3035,6 @@ function App() {
                           style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                       : <img src={post.media_url} alt={post.caption || 'Publication'} loading="lazy"
                           style={{ width: '100%', height: '100%', objectFit: 'contain' }} />}
-                    <span style={{ position: 'absolute', bottom: 12, right: 12, fontSize: 11, color: '#fff',
-                      background: 'rgba(0,0,0,.55)', padding: '5px 9px', borderRadius: 12 }}>↑ Glisse pour voir la suite</span>
                   </div>
                   <div style={{ flexShrink: 0, maxHeight: '36%', overflowY: 'auto', padding: '10px 14px 14px', background: '#0b0c10' }}>
                     <p style={{ margin: '0 0 8px', fontSize: 13 }}>{post.caption}</p>
