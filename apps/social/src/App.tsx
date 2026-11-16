@@ -5,6 +5,7 @@ import type { Session } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 import { Capacitor, registerPlugin } from '@capacitor/core'
 import type { BackgroundGeolocationPlugin } from '@capacitor-community/background-geolocation'
+import { Camera } from '@capacitor/camera'
 
 const BackgroundGeolocation = registerPlugin<BackgroundGeolocationPlugin>('BackgroundGeolocation')
 
@@ -510,6 +511,23 @@ function MatchFitCamera({ onCapture, onClose, mode, onMode }: {
   const [error, setError] = useState('')
   const [facing, setFacing] = useState<'user' | 'environment'>('environment')
   const galleryRef = useRef<HTMLInputElement | null>(null)
+  async function openGallery() {
+    if (!Capacitor.isNativePlatform()) { galleryRef.current?.click(); return }
+    try {
+      // iOS ouvre directement la photothèque, sans menu Caméra/Fichiers.
+      const picked = await Camera.pickImages({ limit: 1, quality: 95 })
+      const photo = picked.photos[0]
+      if (!photo) return
+      const response = await fetch(photo.webPath)
+      if (!response.ok) throw new Error('Photo indisponible.')
+      const blob = await response.blob()
+      const mime = blob.type.startsWith('image/') ? blob.type : 'image/jpeg'
+      onCapture(new File([blob], `matchfit-${Date.now()}.${mime === 'image/png' ? 'png' : 'jpg'}`, { type: mime }))
+    } catch (err) {
+      if (String(err).toLowerCase().includes('cancel')) return
+      setError(err instanceof Error ? err.message : 'Impossible d’ouvrir la photothèque.')
+    }
+  }
   useEffect(() => {
     let cancelled = false
     async function start() {
@@ -580,7 +598,7 @@ function MatchFitCamera({ onCapture, onClose, mode, onMode }: {
     <div style={{ padding: '18px 20px 24px', display: 'grid', justifyItems: 'center', gap: 20 }}>
       <div style={{ display: 'flex', gap: 24, justifyContent: 'center' }}>{(['story','publication','reel'] as const).map(value => <button key={value} type="button" onClick={() => onMode(value)} style={{ border: 0, background: 'transparent', color: mode === value ? '#ff8a4b' : '#bbb', fontWeight: mode === value ? 800 : 400, textTransform: 'uppercase', fontSize: 13 }}>{value === 'reel' ? 'Réel' : value}</button>)}</div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around', width: '100%' }}>
-        <button type="button" onClick={() => galleryRef.current?.click()} aria-label="Choisir une photo ou vidéo dans la photothèque" style={{ width: 49, height: 49, border: '2px solid white', borderRadius: 10, background: '#282830', color: 'white', fontSize: 22 }}>▧</button>
+        <button type="button" onClick={() => void openGallery()} aria-label="Ouvrir directement la photothèque"  style={{ width: 49, height: 49, border: '2px solid white', borderRadius: 10, background: '#282830', color: 'white', fontSize: 22 }}>▧</button>
         <button type="button" onPointerDown={pressStart} onPointerUp={pressEnd} onPointerCancel={() => { holdingRef.current = false; if (recordingRef.current) recorderRef.current?.stop() }} onContextMenu={e => e.preventDefault()} aria-label="Appuyer pour une photo, maintenir pour filmer" style={{ width: 78, height: 78, borderRadius: '50%', border: '6px solid white', background: recording ? '#ff5b52' : '#fff', boxShadow: 'inset 0 0 0 5px #333', touchAction: 'none' }} />
         <div style={{ width: 49 }} />
       </div>
@@ -801,9 +819,9 @@ function App() {
     const ordered = [...items].sort((a,b) => a.created_at.localeCompare(b.created_at))
     setStoryIndex(0); setStoryProgress(0); setStoryViewer([...ordered, ...nextUsers])
   }
-  function closeStoryViewer(toDiscover = false) {
+  function closeStoryViewer() {
     setStoryViewer(null); setStoryProgress(0)
-    if (toDiscover) setPage('decouvrir')
+    setPage('accueil')
   }
   function advanceStory() {
     setStoryProgress(0)
@@ -2299,7 +2317,6 @@ function App() {
                 </div><span>{first.author}</span>
               </button>
             })}
-            {stories.some(item => item.user_id === session.user.id && new Date(item.expires_at).getTime() > Date.now()) && <button className="story" onClick={() => openStoryViewer(stories.filter(item => item.user_id === session.user.id && new Date(item.expires_at).getTime() > Date.now()), true)}>Voir ma story</button>}
           </div>
 
           <div className="feed-title">
@@ -3359,7 +3376,7 @@ function App() {
             if (!start) return
             const dx = event.changedTouches[0].clientX - start.x
             const dy = event.changedTouches[0].clientY - start.y
-            if (Math.abs(dy) > 75 && Math.abs(dy) > Math.abs(dx) * 1.2) closeStoryViewer(true)
+            if (Math.abs(dy) > 75 && Math.abs(dy) > Math.abs(dx) * 1.2) closeStoryViewer()
           }}
           style={{ position: 'fixed', inset: 0, zIndex: 3000, background: '#050506', display: 'flex', justifyContent: 'center' }}>
           <div style={{ width: '100%', maxWidth: 520, height: '100%', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -3368,7 +3385,7 @@ function App() {
               <img key={storyViewer[storyIndex].id} src={storyViewer[storyIndex].url} alt="Story" style={{ width: '100%', maxHeight: '100%', objectFit: 'contain' }} />}
             <div style={{ position: 'absolute', top: 'calc(env(safe-area-inset-top, 0px) + 12px)', left: 12, right: 12 }}>
               <div style={{ display: 'flex', gap: 4 }}>{storyViewer.map((item, i) => <div key={item.id} style={{ flex: 1, height: 3, background: 'rgba(255,255,255,.35)', borderRadius: 3, overflow: 'hidden' }}><div style={{ width: `${i < storyIndex ? 100 : i === storyIndex ? storyProgress : 0}%`, height: '100%', background: '#fff' }} /></div>)}</div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 10 }}><strong>{storyViewer[storyIndex].author}</strong><button type="button" onClick={() => setStoryViewer(null)} aria-label="Fermer la story" style={{ color: '#fff', background: 'transparent', border: 0, fontSize: 28 }}>×</button></div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 10 }}><strong>{storyViewer[storyIndex].author}</strong><button type="button" onClick={closeStoryViewer} aria-label="Fermer la story" style={{ color: '#fff', background: 'transparent', border: 0, fontSize: 28 }}>×</button></div>
             </div>
             <button type="button" aria-label="Story précédente" onClick={previousStory} style={{ position: 'absolute', left: 0, top: '22%', height: '55%', width: '28%', background: 'transparent', border: 0 }} />
             <button type="button" aria-label="Story suivante" onClick={advanceStory} style={{ position: 'absolute', right: 0, top: '22%', height: '55%', width: '28%', background: 'transparent', border: 0 }} />
