@@ -580,12 +580,12 @@ function MatchFitCamera({ onCapture, onClose, mode, onMode }: {
     <div style={{ padding: '18px 20px 24px', display: 'grid', justifyItems: 'center', gap: 20 }}>
       <div style={{ display: 'flex', gap: 24, justifyContent: 'center' }}>{(['story','publication','reel'] as const).map(value => <button key={value} type="button" onClick={() => onMode(value)} style={{ border: 0, background: 'transparent', color: mode === value ? '#ff8a4b' : '#bbb', fontWeight: mode === value ? 800 : 400, textTransform: 'uppercase', fontSize: 13 }}>{value === 'reel' ? 'Réel' : value}</button>)}</div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around', width: '100%' }}>
-        <button type="button" onClick={() => galleryRef.current?.click()} aria-label="Ouvrir la galerie" style={{ width: 49, height: 49, border: '2px solid white', borderRadius: 10, background: '#282830', color: 'white', fontSize: 22 }}>▧</button>
+        <button type="button" onClick={() => galleryRef.current?.click()} aria-label="Choisir une photo ou vidéo dans la photothèque" style={{ width: 49, height: 49, border: '2px solid white', borderRadius: 10, background: '#282830', color: 'white', fontSize: 22 }}>▧</button>
         <button type="button" onPointerDown={pressStart} onPointerUp={pressEnd} onPointerCancel={() => { holdingRef.current = false; if (recordingRef.current) recorderRef.current?.stop() }} onContextMenu={e => e.preventDefault()} aria-label="Appuyer pour une photo, maintenir pour filmer" style={{ width: 78, height: 78, borderRadius: '50%', border: '6px solid white', background: recording ? '#ff5b52' : '#fff', boxShadow: 'inset 0 0 0 5px #333', touchAction: 'none' }} />
         <div style={{ width: 49 }} />
       </div>
       <small style={{ color: '#aaa' }}>Appuie pour une photo · Maintiens pour filmer</small>
-      <input ref={galleryRef} type="file" accept="image/*,video/mp4" style={{ display: 'none' }} onChange={event => { const file = event.target.files?.[0]; if (file) onCapture(file) }} />
+      <input ref={galleryRef} type="file" accept="image/*,video/*" style={{ display: 'none' }} onChange={event => { const file = event.target.files?.[0]; if (file) onCapture(file) }} />
     </div>
   </div>
 }
@@ -635,6 +635,7 @@ function App() {
   const [storyViewer, setStoryViewer] = useState<StoryView[] | null>(null)
   const [storyIndex, setStoryIndex] = useState(0)
   const [storyProgress, setStoryProgress] = useState(0)
+  const storyGestureStart = useRef<{ x: number; y: number } | null>(null)
   const [storyArchive, setStoryArchive] = useState<StoryView[]>([])
 
   const [posts, setPosts] = useState<SocialPost[]>([])
@@ -745,7 +746,10 @@ function App() {
     const { data, error } = await supabase.from('social_stories').select('*')
       .or(`expires_at.gt.${new Date().toISOString()},is_highlight.eq.true`).order('created_at', { ascending: false }).limit(150)
     if (error) { setStoryError('Stories indisponibles : ' + error.message); return }
-    setStories(await signStories((data || []) as MatchStory[]))
+    const signed = await signStories((data || []) as MatchStory[])
+    setStories(signed)
+    signed.filter(item => item.media_type === 'image' && new Date(item.expires_at).getTime() > Date.now())
+      .slice(0, 15).forEach(item => { const img = new Image(); img.src = item.url })
   }
 
   async function loadStoryArchive() {
@@ -786,8 +790,33 @@ function App() {
     setStoryViewer(null)
   }
 
-  function openStoryViewer(items: StoryView[]) { if (items.length) { setStoryIndex(0); setStoryProgress(0); setStoryViewer(items) } }
-  function advanceStory() { setStoryProgress(0); setStoryIndex(i => { if (!storyViewer || i + 1 >= storyViewer.length) { setStoryViewer(null); return 0 } return i + 1 }) }
+  function openStoryViewer(items: StoryView[], includeOtherUsers = false) {
+    if (!items.length) return
+    const active = stories.filter(item => new Date(item.expires_at).getTime() > Date.now())
+    const nextUsers = includeOtherUsers
+      ? Array.from(new Set(active.map(item => item.user_id)))
+          .filter(id => id !== items[0].user_id)
+          .flatMap(id => active.filter(item => item.user_id === id).sort((a,b) => a.created_at.localeCompare(b.created_at)))
+      : []
+    const ordered = [...items].sort((a,b) => a.created_at.localeCompare(b.created_at))
+    setStoryIndex(0); setStoryProgress(0); setStoryViewer([...ordered, ...nextUsers])
+  }
+  function closeStoryViewer(toDiscover = false) {
+    setStoryViewer(null); setStoryProgress(0)
+    if (toDiscover) setPage('decouvrir')
+  }
+  function advanceStory() {
+    setStoryProgress(0)
+    if (!storyViewer || storyIndex + 1 >= storyViewer.length) closeStoryViewer()
+    else setStoryIndex(storyIndex + 1)
+  }
+  function previousStory() { setStoryProgress(0); setStoryIndex(i => Math.max(0, i - 1)) }
+  useEffect(() => {
+    if (!storyViewer) return
+    storyViewer.slice(storyIndex, storyIndex + 3).forEach(item => {
+      if (item.media_type === 'image') { const img = new Image(); img.src = item.url }
+    })
+  }, [storyViewer, storyIndex])
   useEffect(() => {
     if (!storyViewer || storyViewer[storyIndex]?.media_type !== 'image') return
     setStoryProgress(0)
@@ -2244,7 +2273,7 @@ function App() {
           <div className="stories">
             <div className="story" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
               <div style={{ position: 'relative', width: 68, height: 68 }}>
-                <div className="story-avatar" onClick={() => { const own = stories.filter(item => item.user_id === session.user.id && new Date(item.expires_at).getTime() > Date.now()); if (own.length) openStoryViewer(own); else openCamera('story') }} style={{ width: 64, height: 64, overflow: 'hidden', boxSizing: 'border-box', cursor: 'pointer', border: stories.some(item => item.user_id === session.user.id && new Date(item.expires_at).getTime() > Date.now()) ? '3px solid #ff8a4b' : 'none' }}>
+                <div className="story-avatar" onClick={() => { const own = stories.filter(item => item.user_id === session.user.id && new Date(item.expires_at).getTime() > Date.now()); if (own.length) openStoryViewer(own, true); else openCamera('story') }} style={{ width: 64, height: 64, overflow: 'hidden', boxSizing: 'border-box', cursor: 'pointer', border: stories.some(item => item.user_id === session.user.id && new Date(item.expires_at).getTime() > Date.now()) ? '3px solid #ff8a4b' : 'none' }}>
                   {profile?.avatar_url ? (
                     <img src={profile.avatar_url} alt="Ma photo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   ) : (profile?.first_name?.[0]?.toUpperCase() || '♡')}
@@ -2264,13 +2293,13 @@ function App() {
             {Array.from(new Set(stories.filter(item => item.user_id !== session.user.id && new Date(item.expires_at).getTime() > Date.now()).map(item => item.user_id))).map(userId => {
               const items = stories.filter(item => item.user_id === userId && new Date(item.expires_at).getTime() > Date.now())
               const first = items[0]
-              return <button className="story" key={userId} onClick={() => openStoryViewer(items)}>
+              return <button className="story" key={userId} onClick={() => openStoryViewer(items, true)}>
                 <div className="story-avatar" style={{ overflow: 'hidden', border: '2px solid #ff8a4b' }}>
                   {first.avatar ? <img src={first.avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : first.author[0]?.toUpperCase()}
                 </div><span>{first.author}</span>
               </button>
             })}
-            {stories.some(item => item.user_id === session.user.id && new Date(item.expires_at).getTime() > Date.now()) && <button className="story" onClick={() => openStoryViewer(stories.filter(item => item.user_id === session.user.id && new Date(item.expires_at).getTime() > Date.now()))}>Voir ma story</button>}
+            {stories.some(item => item.user_id === session.user.id && new Date(item.expires_at).getTime() > Date.now()) && <button className="story" onClick={() => openStoryViewer(stories.filter(item => item.user_id === session.user.id && new Date(item.expires_at).getTime() > Date.now()), true)}>Voir ma story</button>}
           </div>
 
           <div className="feed-title">
@@ -2510,9 +2539,6 @@ function App() {
       {page === 'profil' && (
         <section className="placeholder-page">
           <h2>Mon profil sportif</h2>
-          {stories.some(item => item.user_id === session.user.id && item.is_highlight) && <div style={{ display: 'flex', gap: 12, overflowX: 'auto', padding: 10 }}>
-            {stories.filter(item => item.user_id === session.user.id && item.is_highlight).map(item => <button key={item.id} type="button" onClick={() => openStoryViewer([item])} style={{ border: '2px solid #ff8a4b', borderRadius: 40, width: 64, height: 64, flexShrink: 0, background: '#24252e', color: '#fff' }}>★</button>)}
-          </div>}
           <p>Ton espace sportif personnel.</p>
           <div style={{ ...cardStyle, borderColor: '#523728' }}>
             <h3 style={{ marginTop: 0 }}>🏆 Mes activités sportives</h3>
@@ -2702,6 +2728,26 @@ function App() {
                   <button type="button" onClick={() => void respondToFollowRequest(request.follower_id, false)}>Refuser</button>
                 </div>)}
               </div>}
+
+              {stories.some(item => item.user_id === session.user.id && item.is_highlight) && (
+                <div style={{ marginTop: 22, paddingTop: 16, borderTop: '1px solid #30313b' }}>
+                  <h3 style={{ margin: '0 0 14px', fontSize: 15 }}>Stories à la une</h3>
+                  <div style={{ display: 'flex', gap: 14, overflowX: 'auto', paddingBottom: 8 }}>
+                    {stories.filter(item => item.user_id === session.user.id && item.is_highlight).map(item => (
+                      <button key={item.id} type="button" onClick={() => openStoryViewer([item])}
+                        aria-label="Voir la story à la une"
+                        style={{ width: 74, flexShrink: 0, border: 0, padding: 0, background: 'transparent', color: '#fff', cursor: 'pointer' }}>
+                        <span style={{ width: 68, height: 68, display: 'block', borderRadius: '50%', padding: 3, border: '2px solid #ff8a4b', overflow: 'hidden' }}>
+                          {item.media_type === 'image' ?
+                            <img src={item.url} alt="Story à la une" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} /> :
+                            <span style={{ width: '100%', height: '100%', borderRadius: '50%', background: '#24252e', display: 'grid', placeItems: 'center', fontSize: 23 }}>▶</span>}
+                        </span>
+                        <span style={{ display: 'block', marginTop: 5, fontSize: 11, color: '#d4d4dc' }}>À la une</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div style={{ marginTop: 24, paddingTop: 20, borderTop: '1px solid #30313b' }}>
                 <h3 style={{ margin: 0, fontSize: 15 }}>▦ Mes publications</h3>
@@ -3306,7 +3352,16 @@ function App() {
       )}
 
       {storyViewer && storyViewer[storyIndex] && (
-        <div role="dialog" aria-modal="true" aria-label="Story MatchFit" style={{ position: 'fixed', inset: 0, zIndex: 3000, background: '#050506', display: 'flex', justifyContent: 'center' }}>
+        <div role="dialog" aria-modal="true" aria-label="Story MatchFit"
+          onTouchStart={event => { storyGestureStart.current = { x: event.touches[0].clientX, y: event.touches[0].clientY } }}
+          onTouchEnd={event => {
+            const start = storyGestureStart.current; storyGestureStart.current = null
+            if (!start) return
+            const dx = event.changedTouches[0].clientX - start.x
+            const dy = event.changedTouches[0].clientY - start.y
+            if (Math.abs(dy) > 75 && Math.abs(dy) > Math.abs(dx) * 1.2) closeStoryViewer(true)
+          }}
+          style={{ position: 'fixed', inset: 0, zIndex: 3000, background: '#050506', display: 'flex', justifyContent: 'center' }}>
           <div style={{ width: '100%', maxWidth: 520, height: '100%', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             {storyViewer[storyIndex].media_type === 'video' ?
               <video key={storyViewer[storyIndex].id} src={storyViewer[storyIndex].url} autoPlay playsInline onEnded={advanceStory} style={{ width: '100%', maxHeight: '100%', objectFit: 'contain' }} /> :
@@ -3315,7 +3370,7 @@ function App() {
               <div style={{ display: 'flex', gap: 4 }}>{storyViewer.map((item, i) => <div key={item.id} style={{ flex: 1, height: 3, background: 'rgba(255,255,255,.35)', borderRadius: 3, overflow: 'hidden' }}><div style={{ width: `${i < storyIndex ? 100 : i === storyIndex ? storyProgress : 0}%`, height: '100%', background: '#fff' }} /></div>)}</div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 10 }}><strong>{storyViewer[storyIndex].author}</strong><button type="button" onClick={() => setStoryViewer(null)} aria-label="Fermer la story" style={{ color: '#fff', background: 'transparent', border: 0, fontSize: 28 }}>×</button></div>
             </div>
-            <button type="button" aria-label="Story précédente" onClick={() => { setStoryIndex(i => Math.max(0, i - 1)); setStoryProgress(0) }} style={{ position: 'absolute', left: 0, top: '22%', height: '55%', width: '28%', background: 'transparent', border: 0 }} />
+            <button type="button" aria-label="Story précédente" onClick={previousStory} style={{ position: 'absolute', left: 0, top: '22%', height: '55%', width: '28%', background: 'transparent', border: 0 }} />
             <button type="button" aria-label="Story suivante" onClick={advanceStory} style={{ position: 'absolute', right: 0, top: '22%', height: '55%', width: '28%', background: 'transparent', border: 0 }} />
             {storyViewer[storyIndex].user_id === session.user.id && <button type="button" onClick={() => void toggleStoryHighlight(storyViewer[storyIndex])} style={{ position: 'absolute', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 20px)', color: '#fff', background: '#24252e', border: 0, borderRadius: 20, padding: 12 }}>{storyViewer[storyIndex].is_highlight ? '★ Retirer de la une' : '☆ Mettre à la une'}</button>}
           </div>
