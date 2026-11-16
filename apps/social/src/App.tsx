@@ -1,4 +1,5 @@
 
+
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
@@ -2279,8 +2280,12 @@ function App() {
           <p>Ton espace sportif personnel.</p>
           <div style={{ ...cardStyle, borderColor: '#523728' }}>
             <h3 style={{ marginTop: 0 }}>🔥 Ta régularité sportive</h3>
-            <strong style={{ fontSize: 23, color: '#ff8a4b' }}>{streak.current} semaine{streak.current > 1 ? 's' : ''} d'affilée !</strong>
-            <p style={{ fontSize: 13, color: '#a4a4ad' }}>🏆 Record personnel : {streak.record} semaine{streak.record > 1 ? 's' : ''}</p>
+            {activities.length === 0 && !activityLoading ? (
+              <p style={{ fontSize: 14, color: '#ffb18a', lineHeight: 1.5, marginBottom: 0 }}>✨ Chaque aventure commence par un premier pas. Enregistre ta première activité et lance ta régularité sportive !</p>
+            ) : (
+              <strong style={{ fontSize: 23, color: '#ff8a4b' }}>{streak.current > 0 ? `${streak.current} semaine${streak.current > 1 ? 's' : ''} d'affilée !` : 'Une nouvelle semaine, un nouveau départ ! 💪'}</strong>
+            )}
+            {activities.length > 0 && <p style={{ fontSize: 13, color: '#a4a4ad' }}>🏆 Record personnel : {streak.record} semaine{streak.record > 1 ? 's' : ''}</p>}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, minmax(0, 1fr))', gap: 7 }}>
               {Array.from({ length: 12 }, (_, i) => streak.today - (11 - i) * 7).map((week, i) => <div key={week} title={`Semaine ${i + 1}`} style={{ textAlign: 'center', borderRadius: 8, padding: '10px 0', fontSize: 12, background: streak.weeks.has(week) ? '#533121' : '#292a32', color: streak.weeks.has(week) ? '#ff8a4b' : '#999' }}>{streak.weeks.has(week) ? '✓' : '·'}</div>)}
             </div>
@@ -2421,7 +2426,7 @@ function App() {
                 >
                   {[
                     [String(posts.filter(post => post.user_id === session.user.id).length), 'Publications'],
-                    ['0', 'Activités'],
+                    [String(activities.length), 'Activités'],
                     ['0', 'Abonnés']
                   ].map(([count, label]) => (
                     <div
@@ -2457,6 +2462,38 @@ function App() {
                   <button type="button" onClick={() => void respondToFollowRequest(request.follower_id, false)}>Refuser</button>
                 </div>)}
               </div>}
+
+              <div style={{ marginTop: 24, paddingTop: 20, borderTop: '1px solid #30313b' }}>
+                <h3 style={{ margin: 0, fontSize: 15 }}>▦ Mes publications</h3>
+                <button type="button" style={{ ...primaryStyle, marginTop: 16 }} onClick={() => openCreation('publication')}>
+                  + Ajouter une publication
+                </button>
+                {postsLoading && <p>Chargement...</p>}
+                {!postsLoading && posts.filter(post => post.user_id === session.user.id).length === 0 && (
+                  <p style={{ textAlign: 'center', color: '#a4a4ad', fontSize: 13, marginTop: 25 }}>
+                    Tu n'as pas encore de publications.
+                  </p>
+                )}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 5, marginTop: 15 }}>
+                  {posts.filter(post => post.user_id === session.user.id).map(post => (
+                    <button type="button" key={post.id} aria-label="Ouvrir ma publication"
+                      onClick={() => { setOwnPostMenuOpen(null); setSelectedPost(post) }}
+                      style={{ aspectRatio: '1', overflow: 'hidden', borderRadius: 5, background: '#24252e',
+                        position: 'relative', border: 'none', padding: 0, cursor: 'pointer' }}>
+                      {post.media_type === 'video' ? (
+                        <>
+                          <video src={post.media_url} muted playsInline preload="metadata"
+                            style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          <span style={{ position: 'absolute', top: 5, right: 6, color: '#fff', textShadow: '0 1px 4px #000' }}>▶</span>
+                        </>
+                      ) : (
+                        <img src={post.media_url} alt={post.caption || 'Ma publication'}
+                          style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
               {profileEditing && (
                 <form
@@ -2645,37 +2682,7 @@ function App() {
                 </p>
               )}
 
-              <div style={cardStyle}>
-                <h3 style={{ margin: 0, fontSize: 15 }}>▦ Mes publications</h3>
-                <button type="button" style={{ ...primaryStyle, marginTop: 16 }} onClick={() => openCreation('publication')}>
-                  + Ajouter une publication
-                </button>
-                {postsLoading && <p>Chargement...</p>}
-                {!postsLoading && posts.filter(post => post.user_id === session.user.id).length === 0 && (
-                  <p style={{ textAlign: 'center', color: '#a4a4ad', fontSize: 13, marginTop: 25 }}>
-                    Tu n'as pas encore de publications.
-                  </p>
-                )}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 5, marginTop: 15 }}>
-                  {posts.filter(post => post.user_id === session.user.id).map(post => (
-                    <button type="button" key={post.id} aria-label="Ouvrir ma publication"
-                      onClick={() => { setOwnPostMenuOpen(null); setSelectedPost(post) }}
-                      style={{ aspectRatio: '1', overflow: 'hidden', borderRadius: 5, background: '#24252e',
-                        position: 'relative', border: 'none', padding: 0, cursor: 'pointer' }}>
-                      {post.media_type === 'video' ? (
-                        <>
-                          <video src={post.media_url} muted playsInline preload="metadata"
-                            style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                          <span style={{ position: 'absolute', top: 5, right: 6, color: '#fff', textShadow: '0 1px 4px #000' }}>▶</span>
-                        </>
-                      ) : (
-                        <img src={post.media_url} alt={post.caption || 'Ma publication'}
-                          style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
+
             </>
           )}
 
