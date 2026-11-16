@@ -318,6 +318,8 @@ function ModernHeart({ filled, size = 26 }: { filled: boolean; size?: number }) 
 
 type Page = 'accueil' | 'decouvrir' | 'activites' | 'messages' | 'profil' | 'reglages'
 type Activity = { id: string; user_id: string; sport: string; title: string; started_at: string; duration_seconds: number; distance_km: number | null; elevation_m: number | null; notes: string; source: 'manual' | 'gps'; route: { lat: number; lng: number }[] | null; created_at: string }
+type MatchStory = { id: string; user_id: string; media_path: string; media_type: 'image' | 'video'; created_at: string; expires_at: string; is_highlight: boolean }
+type StoryView = MatchStory & { url: string; author: string; avatar: string | null }
 type CreationType = 'story' | 'publication'
 type AuthMode = 'connexion' | 'inscription' | 'oubli'
 
@@ -528,6 +530,16 @@ function App() {
   const [interactionMessage, setInteractionMessage] = useState('')
   const [creationOpen, setCreationOpen] = useState(false)
   const [creationType, setCreationType] = useState<CreationType | null>(null)
+  const [stories, setStories] = useState<StoryView[]>([])
+  const [storyFile, setStoryFile] = useState<File | null>(null)
+  const [storyPreview, setStoryPreview] = useState<string | null>(null)
+  const [storyBusy, setStoryBusy] = useState(false)
+  const [storyError, setStoryError] = useState('')
+  const [storyViewer, setStoryViewer] = useState<StoryView[] | null>(null)
+  const [storyIndex, setStoryIndex] = useState(0)
+  const [storyProgress, setStoryProgress] = useState(0)
+  const [storyArchive, setStoryArchive] = useState<StoryView[]>([])
+
   const [posts, setPosts] = useState<SocialPost[]>([])
   const [authors, setAuthors] = useState<Record<string, PostAuthor>>({})
   const [postsLoading, setPostsLoading] = useState(false)
@@ -610,6 +622,87 @@ function App() {
   const [gpsPreviewPosition, setGpsPreviewPosition] = useState<MapPoint | null>(null)
   const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null)
   const [gpsCurrentAltitude, setGpsCurrentAltitude] = useState<number | null>(null)
+  useEffect(() => {
+    if (!storyFile) { setStoryPreview(null); return }
+    const url = URL.createObjectURL(storyFile)
+    setStoryPreview(url)
+    return () => URL.revokeObjectURL(url)
+  }, [storyFile])
+
+  async function signStories(items: MatchStory[]): Promise<StoryView[]> {
+    const users = [...new Set(items.map(item => item.user_id))]
+    const { data: people } = users.length ? await supabase.from('social_profiles')
+      .select('user_id,first_name,username,avatar_url').in('user_id', users) : { data: [] }
+    const names = new Map((people || []).map(person => [person.user_id, person]))
+    const result = await Promise.all(items.map(async item => {
+      const { data, error } = await supabase.storage.from('social-stories').createSignedUrl(item.media_path, 3600)
+      if (error || !data?.signedUrl) return null
+      const person = names.get(item.user_id)
+      return { ...item, url: data.signedUrl, author: person?.username || person?.first_name || 'Sportif', avatar: person?.avatar_url || null }
+    }))
+    return result.filter((item): item is StoryView => item !== null)
+  }
+
+  async function loadStories() {
+    if (!session) return
+    const { data, error } = await supabase.from('social_stories').select('*')
+      .or(`expires_at.gt.${new Date().toISOString()},is_highlight.eq.true`).order('created_at', { ascending: false }).limit(150)
+    if (error) { setStoryError('Stories indisponibles : ' + error.message); return }
+    setStories(await signStories((data || []) as MatchStory[]))
+  }
+
+  async function loadStoryArchive() {
+    if (!session) return
+    const { data, error } = await supabase.from('social_stories').select('*')
+      .eq('user_id', session.user.id).order('created_at', { ascending: false }).limit(150)
+    if (error) { setStoryError('Archives indisponibles : ' + error.message); return }
+    setStoryArchive(await signStories((data || []) as MatchStory[]))
+  }
+
+  useEffect(() => { if (session?.user.id) void loadStories() }, [session?.user.id, page])
+  useEffect(() => { if (page === 'reglages' && settingsSection === 'archives') void loadStoryArchive() }, [page, settingsSection, session?.user.id])
+
+  async function publishStory(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!session || !storyFile || storyBusy) return
+    if (!['image/jpeg','image/png','image/webp','video/mp4'].includes(storyFile.type)) { setStoryError('Format JPG, PNG, WebP ou MP4 uniquement.'); return }
+    if (storyFile.size > 50 * 1024 * 1024) { setStoryError('50 Mo maximum.'); return }
+    setStoryBusy(true); setStoryError('')
+    const extension = storyFile.type === 'video/mp4' ? 'mp4' : storyFile.type === 'image/png' ? 'png' : storyFile.type === 'image/webp' ? 'webp' : 'jpg'
+    const path = `${session.user.id}/${crypto.randomUUID()}.${extension}`
+    try {
+      const { error: uploadError } = await supabase.storage.from('social-stories').upload(path, storyFile, { contentType: storyFile.type })
+      if (uploadError) throw uploadError
+      const { error: insertError } = await supabase.from('social_stories').insert({ user_id: session.user.id, media_path: path, media_type: storyFile.type === 'video/mp4' ? 'video' : 'image' })
+      if (insertError) { await supabase.storage.from('social-stories').remove([path]); throw insertError }
+      setStoryFile(null); setCreationOpen(false); setCreationType(null)
+      await loadStories()
+    } catch (error) { setStoryError(error instanceof Error ? error.message : 'Publication impossible.') }
+    finally { setStoryBusy(false) }
+  }
+
+  async function toggleStoryHighlight(story: StoryView) {
+    if (story.user_id !== session?.user.id) return
+    const { error } = await supabase.from('social_stories').update({ is_highlight: !story.is_highlight }).eq('id', story.id).eq('user_id', session.user.id)
+    if (error) { setStoryError(error.message); return }
+    await Promise.all([loadStories(), loadStoryArchive()])
+    setStoryViewer(null)
+  }
+
+  function openStoryViewer(items: StoryView[]) { if (items.length) { setStoryIndex(0); setStoryProgress(0); setStoryViewer(items) } }
+  function advanceStory() { setStoryProgress(0); setStoryIndex(i => { if (!storyViewer || i + 1 >= storyViewer.length) { setStoryViewer(null); return 0 } return i + 1 }) }
+  useEffect(() => {
+    if (!storyViewer || storyViewer[storyIndex]?.media_type !== 'image') return
+    setStoryProgress(0)
+    const started = Date.now()
+    const timer = window.setInterval(() => {
+      const progress = Math.min(100, (Date.now() - started) / 50)
+      setStoryProgress(progress)
+      if (progress >= 100) { window.clearInterval(timer); advanceStory() }
+    }, 50)
+    return () => window.clearInterval(timer)
+  }, [storyViewer, storyIndex])
+
 
 
   // À chaque changement de page ou ouverture d'un écran, repartir du haut.
@@ -2060,12 +2153,16 @@ function App() {
               </div>
               <span>Ma story</span>
             </div>
-            {['Emma', 'Lucas', 'Clara'].map(name => (
-              <button className="story" key={name} onClick={() => alert('Stories bientôt disponibles')}>
-                <div className="story-avatar">{name[0]}</div>
-                <span>{name}</span>
+            {Array.from(new Set(stories.filter(item => item.user_id !== session.user.id && new Date(item.expires_at).getTime() > Date.now()).map(item => item.user_id))).map(userId => {
+              const items = stories.filter(item => item.user_id === userId && new Date(item.expires_at).getTime() > Date.now())
+              const first = items[0]
+              return <button className="story" key={userId} onClick={() => openStoryViewer(items)}>
+                <div className="story-avatar" style={{ overflow: 'hidden', border: '2px solid #ff8a4b' }}>
+                  {first.avatar ? <img src={first.avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : first.author[0]?.toUpperCase()}
+                </div><span>{first.author}</span>
               </button>
-            ))}
+            })}
+            {stories.some(item => item.user_id === session.user.id && new Date(item.expires_at).getTime() > Date.now()) && <button className="story" onClick={() => openStoryViewer(stories.filter(item => item.user_id === session.user.id && new Date(item.expires_at).getTime() > Date.now()))}>Voir ma story</button>}
           </div>
 
           <div className="feed-title">
@@ -2305,6 +2402,9 @@ function App() {
       {page === 'profil' && (
         <section className="placeholder-page">
           <h2>Mon profil sportif</h2>
+          {stories.some(item => item.user_id === session.user.id && item.is_highlight) && <div style={{ display: 'flex', gap: 12, overflowX: 'auto', padding: 10 }}>
+            {stories.filter(item => item.user_id === session.user.id && item.is_highlight).map(item => <button key={item.id} type="button" onClick={() => openStoryViewer([item])} style={{ border: '2px solid #ff8a4b', borderRadius: 40, width: 64, height: 64, flexShrink: 0, background: '#24252e', color: '#fff' }}>★</button>)}
+          </div>}
           <p>Ton espace sportif personnel.</p>
           <div style={{ ...cardStyle, borderColor: '#523728' }}>
             <h3 style={{ marginTop: 0 }}>🏆 Mes activités sportives</h3>
@@ -2901,7 +3001,16 @@ function App() {
           ) : settingsSection === 'archives' ? (
             <div style={cardStyle}>
               <h3>Mes stories archivées</h3>
-              <p style={{ color: '#a4a4ad', lineHeight: 1.6 }}>Tes stories sauvegardées apparaîtront ici après la mise en place des stories et des archives Supabase.</p>
+              {storyError && <p role="alert" style={{ color: '#ff7777' }}>{storyError}</p>}
+              {storyArchive.length === 0 && <p>Aucune story archivée pour le moment.</p>}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
+                {storyArchive.map(item => <div key={item.id}>
+                  <button type="button" onClick={() => openStoryViewer([item])} style={{ border: 0, padding: 0, width: '100%', background: '#24252e', color: '#fff' }}>
+                    {item.media_type === 'video' ? <video src={item.url} muted playsInline style={{ width: '100%', aspectRatio: '3/4', objectFit: 'cover' }} /> : <img src={item.url} alt="Story archivée" style={{ width: '100%', aspectRatio: '3/4', objectFit: 'cover' }} />}
+                  </button>
+                  <button type="button" onClick={() => void toggleStoryHighlight(item)} style={{ fontSize: 11, width: '100%' }}>{item.is_highlight ? '★ À la une' : '☆ Mettre à la une'}</button>
+                </div>)}
+              </div>
             </div>
           ) : settingsSection === 'confidentialite' ? (
             <div style={cardStyle}>
@@ -3088,6 +3197,23 @@ function App() {
         </div>
       )}
 
+      {storyViewer && storyViewer[storyIndex] && (
+        <div role="dialog" aria-modal="true" aria-label="Story MatchFit" style={{ position: 'fixed', inset: 0, zIndex: 3000, background: '#050506', display: 'flex', justifyContent: 'center' }}>
+          <div style={{ width: '100%', maxWidth: 520, height: '100%', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {storyViewer[storyIndex].media_type === 'video' ?
+              <video key={storyViewer[storyIndex].id} src={storyViewer[storyIndex].url} autoPlay playsInline onEnded={advanceStory} style={{ width: '100%', maxHeight: '100%', objectFit: 'contain' }} /> :
+              <img key={storyViewer[storyIndex].id} src={storyViewer[storyIndex].url} alt="Story" style={{ width: '100%', maxHeight: '100%', objectFit: 'contain' }} />}
+            <div style={{ position: 'absolute', top: 'calc(env(safe-area-inset-top, 0px) + 12px)', left: 12, right: 12 }}>
+              <div style={{ display: 'flex', gap: 4 }}>{storyViewer.map((item, i) => <div key={item.id} style={{ flex: 1, height: 3, background: 'rgba(255,255,255,.35)', borderRadius: 3, overflow: 'hidden' }}><div style={{ width: `${i < storyIndex ? 100 : i === storyIndex ? storyProgress : 0}%`, height: '100%', background: '#fff' }} /></div>)}</div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 10 }}><strong>{storyViewer[storyIndex].author}</strong><button type="button" onClick={() => setStoryViewer(null)} aria-label="Fermer la story" style={{ color: '#fff', background: 'transparent', border: 0, fontSize: 28 }}>×</button></div>
+            </div>
+            <button type="button" aria-label="Story précédente" onClick={() => { setStoryIndex(i => Math.max(0, i - 1)); setStoryProgress(0) }} style={{ position: 'absolute', left: 0, top: '22%', height: '55%', width: '28%', background: 'transparent', border: 0 }} />
+            <button type="button" aria-label="Story suivante" onClick={advanceStory} style={{ position: 'absolute', right: 0, top: '22%', height: '55%', width: '28%', background: 'transparent', border: 0 }} />
+            {storyViewer[storyIndex].user_id === session.user.id && <button type="button" onClick={() => void toggleStoryHighlight(storyViewer[storyIndex])} style={{ position: 'absolute', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 20px)', color: '#fff', background: '#24252e', border: 0, borderRadius: 20, padding: 12 }}>{storyViewer[storyIndex].is_highlight ? '★ Retirer de la une' : '☆ Mettre à la une'}</button>}
+          </div>
+        </div>
+      )}
+
       {creationOpen && (
         <div className="creation-overlay">
           <div className="creation-panel">
@@ -3106,8 +3232,13 @@ function App() {
               </div>
             ) : creationType === 'story' ? (
               <div className="creation-form">
-                <p>Les stories seront disponibles dans une prochaine étape.</p>
-                <button className="creation-back" onClick={closeCreation}>Fermer</button>
+                <form onSubmit={publishStory} style={{ display: 'grid', gap: 12 }}>
+                  <p>Ta story sera visible pendant 24 h. Les comptes privés sont protégés.</p>
+                  <input type="file" accept="image/jpeg,image/png,image/webp,video/mp4" required onChange={event => setStoryFile(event.target.files?.[0] || null)} />
+                  {storyPreview && (storyFile?.type === 'video/mp4' ? <video src={storyPreview} controls playsInline style={{ maxHeight: 320, width: '100%' }} /> : <img src={storyPreview} alt="Aperçu" style={{ maxHeight: 320, width: '100%', objectFit: 'contain' }} />)}
+                  {storyError && <p role="alert" style={{ color: '#ff7777' }}>{storyError}</p>}
+                  <button type="submit" disabled={storyBusy || !storyFile} style={primaryStyle}>{storyBusy ? 'Publication…' : 'Publier ma story'}</button>
+                </form>
               </div>
             ) : (
               <form className="creation-form" onSubmit={publishPost}>
