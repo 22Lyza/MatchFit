@@ -1,5 +1,4 @@
 
-
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
@@ -116,10 +115,10 @@ function weeklyStreak(activities: Activity[]) {
     d.setDate(d.getDate() - ((d.getDay() + 6) % 7))
     return Math.floor(d.getTime() / 86400000)
   }
-  const weeks = new Set(activities.map(a => monday(new Date(a.started_at))))
+  const weeks = new Set(activities.filter(a => Number.isFinite(new Date(a.started_at).getTime()) && new Date(a.started_at).getTime() <= Date.now()).map(a => monday(new Date(a.started_at))))
   const today = monday(new Date())
   let current = 0
-  let cursor = weeks.has(today) ? today : today - 7
+  let cursor = today // La série actuelle exige une activité cette semaine ; une ancienne semaine seule ne suffit pas.
   while (weeks.has(cursor)) { current++; cursor -= 7 }
   const ordered = [...weeks].sort((a, b) => a - b)
   let record = 0, run = 0, last = Number.NaN
@@ -2097,7 +2096,7 @@ function App() {
         <section className="placeholder-page" style={{ marginTop: -28 }}>
 
           <label htmlFor="member-search" style={{ display: 'block', fontSize: 13, marginTop: 15 }}>Rechercher un sportif</label>
-          <input id="member-search" type="search" autoFocus value={discoverSearch}
+          <input id="member-search" type="search" value={discoverSearch}
             onChange={event => setDiscoverSearch(event.target.value)}
             placeholder="Pseudo, prénom, ville ou sport..." style={{ ...fieldStyle, marginBottom: 18 }} />
           {discoverPeopleError && <p role="alert" style={{ color: '#ff7777', fontSize: 12 }}>{discoverPeopleError}</p>}
@@ -2283,13 +2282,13 @@ function App() {
             {activities.length === 0 && !activityLoading ? (
               <p style={{ fontSize: 14, color: '#ffb18a', lineHeight: 1.5, marginBottom: 0 }}>✨ Chaque aventure commence par un premier pas. Enregistre ta première activité et lance ta régularité sportive !</p>
             ) : (
-              <strong style={{ fontSize: 23, color: '#ff8a4b' }}>{streak.current > 0 ? `${streak.current} semaine${streak.current > 1 ? 's' : ''} d'affilée !` : 'Une nouvelle semaine, un nouveau départ ! 💪'}</strong>
+              <strong style={{ fontSize: 23, color: '#ff8a4b' }}>{streak.current > 0 ? `${streak.current} semaine${streak.current > 1 ? 's' : ''} d'affilée !` : 'Cette semaine, tout reste à accomplir ! 💪'}</strong>
             )}
             {activities.length > 0 && <p style={{ fontSize: 13, color: '#a4a4ad' }}>🏆 Record personnel : {streak.record} semaine{streak.record > 1 ? 's' : ''}</p>}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, minmax(0, 1fr))', gap: 7 }}>
               {Array.from({ length: 12 }, (_, i) => streak.today - (11 - i) * 7).map((week, i) => <div key={week} title={`Semaine ${i + 1}`} style={{ textAlign: 'center', borderRadius: 8, padding: '10px 0', fontSize: 12, background: streak.weeks.has(week) ? '#533121' : '#292a32', color: streak.weeks.has(week) ? '#ff8a4b' : '#999' }}>{streak.weeks.has(week) ? '✓' : '·'}</div>)}
             </div>
-            <p style={{ fontSize: 11, color: '#a4a4ad', marginBottom: 0 }}>12 dernières semaines · 1 activité publiée par semaine suffit</p>
+            <p style={{ fontSize: 11, color: '#a4a4ad', marginBottom: 0 }}>12 dernières semaines · Une activité enregistrée cette semaine pour maintenir ta série</p>
           </div>
 
           {profileLoading ? (
