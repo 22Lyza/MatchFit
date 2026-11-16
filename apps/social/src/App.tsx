@@ -451,6 +451,23 @@ function EyeIcon({ visible }: { visible: boolean }) {
 }
 
 function App() {
+  // Verrouiller le zoom de l’interface dans la WebView iOS, sans bloquer le défilement.
+  useEffect(() => {
+    let viewport = document.querySelector<HTMLMetaElement>('meta[name="viewport"]')
+    if (!viewport) {
+      viewport = document.createElement('meta')
+      viewport.name = 'viewport'
+      document.head.appendChild(viewport)
+    }
+    viewport.setAttribute('content', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover')
+    const preventGestureZoom = (event: Event) => event.preventDefault()
+    document.addEventListener('gesturestart', preventGestureZoom, { passive: false })
+    document.addEventListener('gesturechange', preventGestureZoom, { passive: false })
+    return () => {
+      document.removeEventListener('gesturestart', preventGestureZoom)
+      document.removeEventListener('gesturechange', preventGestureZoom)
+    }
+  }, [])
   const [session, setSession] = useState<Session | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [authBusy, setAuthBusy] = useState(false)
@@ -2019,7 +2036,7 @@ function App() {
         <section className="placeholder-page" style={{ marginTop: -28 }}>
 
           <label htmlFor="member-search" style={{ display: 'block', fontSize: 13, marginTop: 15 }}>Rechercher un sportif</label>
-          <input id="member-search" type="search" autoFocus value={discoverSearch}
+          <input id="member-search" type="search" value={discoverSearch}
             onChange={event => setDiscoverSearch(event.target.value)}
             placeholder="Pseudo, prénom, ville ou sport..." style={{ ...fieldStyle, marginBottom: 18 }} />
           {discoverPeopleError && <p role="alert" style={{ color: '#ff7777', fontSize: 12 }}>{discoverPeopleError}</p>}
