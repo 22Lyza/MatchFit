@@ -609,6 +609,26 @@ function App() {
   const [gpsCurrentAltitude, setGpsCurrentAltitude] = useState<number | null>(null)
 
 
+  // À chaque changement de page ou ouverture d'un écran, repartir du haut.
+  // Cela inclut les pages principales, les réglages, les profils et les publications.
+  useEffect(() => {
+    const resetScroll = () => {
+      window.scrollTo(0, 0)
+      document.documentElement.scrollTop = 0
+      document.body.scrollTop = 0
+      const app = document.querySelector<HTMLElement>('#root > .app')
+      if (app) app.scrollTop = 0
+      const publication = document.querySelector<HTMLElement>('[aria-label="Publication en grand"]')
+      if (publication) publication.scrollTop = 0
+      const memberProfile = document.querySelector<HTMLElement>('[aria-label="Profil du membre"]')
+      if (memberProfile) memberProfile.scrollTop = 0
+    }
+    resetScroll()
+    const frame = window.requestAnimationFrame(resetScroll)
+    return () => window.cancelAnimationFrame(frame)
+  }, [page, settingsSection, selectedPost?.id, viewedProfile?.user_id])
+
+
   useEffect(() => {
     let active = true
 
