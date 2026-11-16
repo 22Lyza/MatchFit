@@ -2944,8 +2944,9 @@ function App() {
 
       {selectedPost && (
         <div role="dialog" aria-modal="true" aria-label="Publication en grand"
-          style={{ position: 'fixed', inset: 0, zIndex: 1000, background: '#0b0c10', overflowY: 'auto', overscrollBehavior: 'contain' }}>
-          <div style={{ maxWidth: 620, margin: '0 auto', minHeight: '100dvh', background: '#0b0c10' }}>
+          style={{ position: 'fixed', top: 0, bottom: 'calc(75px + env(safe-area-inset-bottom, 0px))', left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 520, zIndex: 50, background: '#0b0c10', overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', boxSizing: 'border-box' }}>
+          <div style={{ width: '100%', maxWidth: 520, margin: '0 auto', minHeight: '100%', background: '#0b0c10', overflowX: 'hidden' }}>
+            <div style={{ height: 75, display: 'flex', alignItems: 'center', padding: '0 16px', borderBottom: '1px solid #30313b', background: '#0b0c10' }}><strong style={{ fontSize: 27, fontWeight: 900, fontStyle: 'italic', letterSpacing: -1 }}>MATCH<span style={{ color: '#ff8a4b' }}>FIT</span></strong></div>
             <div style={{ position: 'sticky', top: 0, zIndex: 40, display: 'flex', alignItems: 'center', gap: 15,
               padding: '13px 16px', background: '#0b0c10', borderBottom: '1px solid #30313b' }}>
               <button type="button" aria-label="Retour aux publications"
