@@ -512,7 +512,13 @@ function MatchFitCamera({ onCapture, onClose, mode, onMode }: {
   const [facing, setFacing] = useState<'user' | 'environment'>('environment')
   const galleryRef = useRef<HTMLInputElement | null>(null)
   async function openGallery() {
-    if (!Capacitor.isNativePlatform()) { galleryRef.current?.click(); return }
+    // Sans plugin natif correctement lié, revenir au sélecteur iOS sans erreur.
+    // Le plugin Camera ne sélectionne que des images : conserver l'import vidéo
+    // via le sélecteur système en mode Réel.
+    if (!Capacitor.isNativePlatform() || !Capacitor.isPluginAvailable('Camera') || mode === 'reel') {
+      galleryRef.current?.click()
+      return
+    }
     try {
       // iOS ouvre directement la photothèque, sans menu Caméra/Fichiers.
       const picked = await Camera.pickImages({ limit: 1, quality: 95 })
@@ -525,7 +531,14 @@ function MatchFitCamera({ onCapture, onClose, mode, onMode }: {
       onCapture(new File([blob], `matchfit-${Date.now()}.${mime === 'image/png' ? 'png' : 'jpg'}`, { type: mime }))
     } catch (err) {
       if (String(err).toLowerCase().includes('cancel')) return
-      setError(err instanceof Error ? err.message : 'Impossible d’ouvrir la photothèque.')
+      // Une installation iOS plus ancienne peut ne pas exposer le plugin.
+      // Dans ce cas, ne pas bloquer la galerie par une erreur rouge.
+      const message = err instanceof Error ? err.message : String(err)
+      if (/not implemented|not available|unavailable|plugin.*ios/i.test(message)) {
+        galleryRef.current?.click()
+        return
+      }
+      setError(message || 'Impossible d’ouvrir la photothèque.')
     }
   }
   useEffect(() => {
@@ -603,7 +616,7 @@ function MatchFitCamera({ onCapture, onClose, mode, onMode }: {
         <div style={{ width: 49 }} />
       </div>
       <small style={{ color: '#aaa' }}>Appuie pour une photo · Maintiens pour filmer</small>
-      <input ref={galleryRef} type="file" accept="image/*,video/*" style={{ display: 'none' }} onChange={event => { const file = event.target.files?.[0]; if (file) onCapture(file) }} />
+      <input ref={galleryRef} type="file" accept="image/*,video/*" style={{ display: 'none' }} onChange={event => { const file = event.target.files?.[0]; if (file) onCapture(file); event.currentTarget.value = '' }} />
     </div>
   </div>
 }
