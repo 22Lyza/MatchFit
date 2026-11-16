@@ -991,11 +991,6 @@ function App() {
   // Compter uniquement les activités GPS réellement enregistrées, sans les démos.
   const recordedGpsActivities = activities.filter(activity => activity.source === 'gps' && !activity.id.startsWith('demo-'))
   const gpsActivityCount = recordedGpsActivities.length
-  const now = new Date()
-  const gpsActivitiesThisMonth = recordedGpsActivities.filter(activity => {
-    const date = new Date(activity.started_at)
-    return Number.isFinite(date.getTime()) && date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth()
-  }).length
 
   const gpsPace = gpsDistance > 0.01 && gpsSeconds > 0 ? Math.round(gpsSeconds / gpsDistance) : null
   const gpsPaceLabel = gpsPace !== null ? `${Math.floor(gpsPace / 60)}:${String(gpsPace % 60).padStart(2, '0')}` : '--:--'
@@ -2270,15 +2265,9 @@ function App() {
           <div style={{ ...cardStyle, borderColor: '#523728' }}>
             <h3 style={{ marginTop: 0 }}>🏆 Mes activités sportives</h3>
             {activityLoading ? <p style={{ color: '#a4a4ad' }}>Chargement des activités…</p> : <>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
-                <div style={{ padding: 14, borderRadius: 12, background: '#24252e', textAlign: 'center' }}>
-                  <strong style={{ display: 'block', fontSize: 28, color: '#ff8a4b' }}>{gpsActivityCount}</strong>
-                  <span style={{ fontSize: 12, color: '#d4d4dc' }}>Activités réalisées</span>
-                </div>
-                <div style={{ padding: 14, borderRadius: 12, background: '#24252e', textAlign: 'center' }}>
-                  <strong style={{ display: 'block', fontSize: 28, color: '#ff8a4b' }}>{gpsActivitiesThisMonth}</strong>
-                  <span style={{ fontSize: 12, color: '#d4d4dc' }}>Ce mois-ci</span>
-                </div>
+              <div style={{ padding: 14, borderRadius: 12, background: '#24252e', textAlign: 'center' }}>
+                <strong style={{ display: 'block', fontSize: 28, color: '#ff8a4b' }}>{gpsActivityCount}</strong>
+                <span style={{ fontSize: 12, color: '#d4d4dc' }}>Activités réalisées</span>
               </div>
               <p style={{ fontSize: 14, color: '#ffb18a', lineHeight: 1.5, marginBottom: 0 }}>
                 {gpsActivityCount === 0 ? '✨ Ta première activité t’attend ! Chaque effort compte. Lance-toi !' :
