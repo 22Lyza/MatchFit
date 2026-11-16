@@ -664,6 +664,7 @@ function App() {
   const [storyBusy, setStoryBusy] = useState(false)
   const [storyError, setStoryError] = useState('')
   const [storyViewer, setStoryViewer] = useState<StoryView[] | null>(null)
+  const storyReturnPage = useRef<Page>('accueil')
   const [storyIndex, setStoryIndex] = useState(0)
   const [storyProgress, setStoryProgress] = useState(0)
   const storyGestureStart = useRef<{ x: number; y: number } | null>(null)
@@ -830,11 +831,12 @@ function App() {
           .flatMap(id => active.filter(item => item.user_id === id).sort((a,b) => a.created_at.localeCompare(b.created_at)))
       : []
     const ordered = [...items].sort((a,b) => a.created_at.localeCompare(b.created_at))
+    storyReturnPage.current = page
     setStoryIndex(0); setStoryProgress(0); setStoryViewer([...ordered, ...nextUsers])
   }
   function closeStoryViewer() {
     setStoryViewer(null); setStoryProgress(0)
-    setPage('accueil')
+    setPage(storyReturnPage.current)
   }
   function advanceStory() {
     setStoryProgress(0)
