@@ -722,6 +722,25 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
       <div ref={photoFrame} style={{ position: 'absolute', inset: 0, overflow: 'hidden', touchAction: isVideo ? 'auto' : 'none' }}
         onPointerDown={e => {
           if (isVideo) return
+          // Le deuxième doigt peut toucher la photo en dehors de la petite étiquette :
+          // il appartient quand même au sticker déjà sélectionné, jamais à la photo.
+          if (gestureOwner.current === 'location' || gestureOwner.current === 'time') {
+            const kind = gestureOwner.current
+            const pointers = kind === 'location' ? locationPointers.current : timePointers.current
+            const pinch = kind === 'location' ? locationPinch : timePinch
+            if (pointers.size >= 2) return
+            e.currentTarget.setPointerCapture(e.pointerId)
+            pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+            if (pointers.size === 2) {
+              const [a, b] = [...pointers.values()]
+              pinch.current = { distance: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)), size: kind === 'location' ? locationSizeRef.current : timeSizeRef.current }
+              if (kind === 'location') locationDrag.current = null
+              else timeDrag.current = null
+              stickerMoved.current = true
+              setDraggingSticker(null); setOverTrash(false)
+            }
+            return
+          }
           if (gestureOwner.current === 'text') {
             e.currentTarget.setPointerCapture(e.pointerId)
             activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
@@ -739,6 +758,31 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
         }}
         onPointerMove={e => {
           if (isVideo) return
+          if (gestureOwner.current === 'location' || gestureOwner.current === 'time') {
+            const kind = gestureOwner.current
+            const pointers = kind === 'location' ? locationPointers.current : timePointers.current
+            if (!pointers.has(e.pointerId)) return
+            pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+            const pinch = kind === 'location' ? locationPinch.current : timePinch.current
+            if (pointers.size >= 2 && pinch) {
+              const [a, b] = [...pointers.values()]
+              const distance = Math.hypot(a.x - b.x, a.y - b.y)
+              const size = Math.max(10, Math.min(180, Math.round(pinch.size * distance / pinch.distance)))
+              if (kind === 'location') setLocationSize(size)
+              else setTimeSize(size)
+              stickerMoved.current = true
+            } else if (pointers.size === 1) {
+              const drag = kind === 'location' ? locationDrag.current : timeDrag.current
+              if (drag) {
+                if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 8) stickerMoved.current = true
+                setOverTrash(isTrashPoint(e.clientX, e.clientY))
+                const offset = { x: drag.ox + e.clientX - drag.x, y: drag.oy + e.clientY - drag.y }
+                if (kind === 'location') setLocationOffset(offset)
+                else setTimeOffset(offset)
+              }
+            }
+            return
+          }
           if (gestureOwner.current === 'text' && activePointers.current.has(e.pointerId)) {
             activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
             updatePinch()
@@ -753,6 +797,29 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
           else if (points.length === 1 && g.distance === 0) setPhotoOffset({ x: g.ox + e.clientX - g.x, y: g.oy + e.clientY - g.y })
         }}
         onPointerUp={e => {
+          if ((gestureOwner.current === 'location' && locationPointers.current.has(e.pointerId)) || (gestureOwner.current === 'time' && timePointers.current.has(e.pointerId))) {
+            const kind = gestureOwner.current
+            const pointers = kind === 'location' ? locationPointers.current : timePointers.current
+            pointers.delete(e.pointerId)
+            if (pointers.size === 0) {
+              if (kind === 'location') { locationPointer.current = null; locationDrag.current = null; locationPinch.current = null }
+              else { timePointer.current = null; timeDrag.current = null; timePinch.current = null }
+              gestureOwner.current = null; setDraggingSticker(null); setOverTrash(false)
+            } else if (pointers.size === 1) {
+              const [id, point] = [...pointers.entries()][0]
+              if (kind === 'location') {
+                locationPointer.current = id
+                locationDrag.current = { x: point.x, y: point.y, ox: locationOffset.x, oy: locationOffset.y }
+                locationPinch.current = null
+              } else {
+                timePointer.current = id
+                timeDrag.current = { x: point.x, y: point.y, ox: timeOffset.x, oy: timeOffset.y }
+                timePinch.current = null
+              }
+              setDraggingSticker(kind)
+            }
+            return
+          }
           if (activePointers.current.has(e.pointerId)) {
             activePointers.current.delete(e.pointerId)
             textPinchDistance.current = null
@@ -768,6 +835,17 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
           }
         }}
         onPointerCancel={e => {
+          if (locationPointers.current.has(e.pointerId) || timePointers.current.has(e.pointerId)) {
+            const kind = locationPointers.current.has(e.pointerId) ? 'location' : 'time'
+            const pointers = kind === 'location' ? locationPointers.current : timePointers.current
+            pointers.delete(e.pointerId)
+            if (pointers.size === 0) {
+              if (kind === 'location') { locationPointer.current = null; locationDrag.current = null; locationPinch.current = null }
+              else { timePointer.current = null; timeDrag.current = null; timePinch.current = null }
+              gestureOwner.current = null; setDraggingSticker(null); setOverTrash(false)
+            }
+            return
+          }
           if (activePointers.current.has(e.pointerId)) {
             activePointers.current.delete(e.pointerId)
             textPinchDistance.current = null
@@ -885,7 +963,7 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
           if (locationPointers.current.size >= 2 && locationPinch.current) {
             const points = [...locationPointers.current.values()]
             const distance = Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y)
-            setLocationSize(Math.max(10, Math.min(90, Math.round(locationPinch.current.size * distance / locationPinch.current.distance))))
+            setLocationSize(Math.max(10, Math.min(180, Math.round(locationPinch.current.size * distance / locationPinch.current.distance))))
             stickerMoved.current = true
           } else if (locationPointers.current.size === 1 && locationDrag.current && locationPointer.current === e.pointerId) {
             const g = locationDrag.current
@@ -952,7 +1030,7 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
           if (timePointers.current.size >= 2 && timePinch.current) {
             const points = [...timePointers.current.values()]
             const distance = Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y)
-            setTimeSize(Math.max(10, Math.min(90, Math.round(timePinch.current.size * distance / timePinch.current.distance))))
+            setTimeSize(Math.max(10, Math.min(180, Math.round(timePinch.current.size * distance / timePinch.current.distance))))
             stickerMoved.current = true
           } else if (timePointers.current.size === 1 && timeDrag.current && timePointer.current === e.pointerId) {
             const g = timeDrag.current
