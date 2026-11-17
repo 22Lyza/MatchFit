@@ -587,6 +587,41 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
   </div>
 }
 
+// Ouvre directement la caméra native iOS, sans afficher l'aperçu web intermédiaire.
+function MatchFitDirectNativeCamera({ onCapture, onClose }: {
+  onCapture: (file: File) => void
+  onClose: () => void
+}) {
+  const launched = useRef(false)
+  useEffect(() => {
+    if (launched.current) return
+    launched.current = true
+    let active = true
+    async function launch() {
+      try {
+        const media = await MatchFitNativeCamera.openCamera()
+        if (!media.path) throw new Error('Photo inaccessible après la capture.')
+        const response = await fetch(Capacitor.convertFileSrc(media.path))
+        if (!response.ok) throw new Error('Impossible de lire la photo sélectionnée.')
+        const blob = await response.blob()
+        if (active) onCapture(new File([blob], media.name || `matchfit-${Date.now()}.jpg`, {
+          type: media.mimeType || blob.type || 'image/jpeg'
+        }))
+      } catch (err) {
+        if (!active) return
+        const message = err instanceof Error ? err.message : String(err)
+        if (!/cancel|dismiss|annul/i.test(message)) {
+          alert(message || 'Impossible d’ouvrir la caméra MatchFit.')
+        }
+        onClose()
+      }
+    }
+    void launch()
+    return () => { active = false }
+  }, [])
+  return null
+}
+
 function MatchFitCamera({ onCapture, onClose, mode, onMode }: {
   onCapture: (file: File) => void; onClose: () => void;
   mode: 'story' | 'publication' | 'reel'; onMode: (mode: 'story' | 'publication' | 'reel') => void
@@ -3577,7 +3612,9 @@ function App() {
       )}
 
       {editingFile && <MatchFitMediaEditor file={editingFile} onDone={completeMediaEdit} onCancel={() => { setEditingFile(null); setCameraOpen(true) }} />}
-      {cameraOpen && <MatchFitCamera mode={creationType === 'reel' ? 'reel' : creationType === 'publication' ? 'publication' : 'story'} onMode={mode => setCreationType(mode)} onClose={() => setCameraOpen(false)} onCapture={capturedMedia} />}
+      {cameraOpen && Capacitor.getPlatform() === 'ios' && creationType === 'story'
+        ? <MatchFitDirectNativeCamera onClose={() => setCameraOpen(false)} onCapture={capturedMedia} />
+        : cameraOpen && <MatchFitCamera mode={creationType === 'reel' ? 'reel' : creationType === 'publication' ? 'publication' : 'story'} onMode={mode => setCreationType(mode)} onClose={() => setCameraOpen(false)} onCapture={capturedMedia} />}
       {creationOpen && (
         <div className="creation-overlay">
           <div className="creation-panel">
