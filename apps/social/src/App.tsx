@@ -566,23 +566,33 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
     finally { setSaving(false) }
   }
   return <div style={{ position: 'fixed', inset: 0, zIndex: 5000, background: '#050505', color: '#fff', display: 'flex', flexDirection: 'column', paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 18px' }}>
-      <button type="button" onClick={onCancel} style={{ color: 'white', border: 0, background: 'transparent', fontSize: 30 }} aria-label="Annuler">×</button>
-      <strong>Modifier {isVideo ? 'la vidéo' : 'la photo'}</strong>
-      <button type="button" disabled={saving} onClick={() => void finish()} style={{ background: '#4567ff', color: 'white', border: 0, borderRadius: 24, padding: '10px 17px', fontWeight: 700 }}>{saving ? 'Export…' : 'Suivant →'}</button>
+    {/* Studio Instagram : photo plein écran, outils superposés sans quitter l'aperçu. */}
+    <div style={{ position: 'relative', flex: 1, minHeight: 0, overflow: 'hidden', background: '#101014' }}>
+      {url && (isVideo
+        ? <video src={url} playsInline controls style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+        : <img src={url} alt="Photo à modifier" style={{ width: '100%', height: '100%', objectFit: 'contain', filter: cssFilter }} />)}
+      {!!caption.trim() && !isVideo && <div style={{ position: 'absolute', top: '50%', left: '8%', right: '8%', transform: 'translateY(-50%)', pointerEvents: 'none', color: textColor, fontWeight: 800, fontSize: `${textSize}px`, textAlign: 'center', overflowWrap: 'anywhere', textShadow: '0 2px 5px #000, 0 0 12px #000' }}>{caption}</div>}
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(#0009,transparent)' }}>
+        <button type="button" onClick={onCancel} aria-label="Reprendre une photo" style={{ color: '#fff', background: '#0007', border: 0, borderRadius: 24, width: 42, height: 42, fontSize: 27 }}>×</button>
+        <strong style={{ letterSpacing: 1 }}>MATCH<span style={{ color: '#ff8a4b' }}>FIT</span></strong>
+        <button type="button" disabled={saving} onClick={() => void finish()} style={{ color: '#fff', background: '#ff704e', border: 0, borderRadius: 24, padding: '11px 16px', fontWeight: 800 }}>{saving ? 'Export…' : 'Suivant →'}</button>
+      </div>
+      {!isVideo && <div style={{ position: 'absolute', right: 12, top: 84, display: 'grid', gap: 13 }}>
+        <button type="button" onClick={() => document.getElementById('mf-studio-text')?.focus()} aria-label="Ajouter du texte" style={{ border: 0, background: '#0009', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 22, fontWeight: 800 }}>Aa</button>
+        <button type="button" onClick={() => setFilter(f => f === 'normal' ? 'contrast' : f === 'contrast' ? 'warm' : f === 'warm' ? 'mono' : 'normal')} aria-label="Changer de filtre" style={{ border: 0, background: '#0009', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 22 }}>◐</button>
+      </div>}
+      {error && <div role="alert" style={{ position: 'absolute', bottom: 12, left: 16, right: 16, color: '#ffb0b0', background: '#000c', borderRadius: 12, padding: 10 }}>{error}</div>}
     </div>
-    <div style={{ position: 'relative', flex: 1, minHeight: 0, overflow: 'hidden', background: '#171717', display: 'grid', placeItems: 'center' }}>
-      {url && (isVideo ? <video src={url} playsInline controls style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> : <img src={url} alt="Photo à modifier" style={{ width: '100%', height: '100%', objectFit: 'contain', filter: cssFilter }} />)}
-      {!!caption.trim() && <div style={{ position: 'absolute', top: '50%', left: '8%', right: '8%', transform: 'translateY(-50%)', pointerEvents: 'none', color: textColor, fontWeight: 800, fontSize: `${textSize}px`, textAlign: 'center', overflowWrap: 'anywhere', textShadow: '0 2px 5px #000, 0 0 12px #000' }}>{caption}</div>}
-    </div>
-    <div style={{ padding: '12px 18px 18px', display: 'grid', gap: 12, maxHeight: '38vh', overflowY: 'auto' }}>
-      {isVideo ? <small style={{ color: '#bbb' }}>La vidéo originale est conservée. Les retouches photo seront disponibles pour les vidéos dans une prochaine version.</small> : <>
-        <input value={caption} onChange={e => setCaption(e.target.value)} maxLength={120} placeholder="Aa  Ajouter du texte sur la photo" aria-label="Texte sur la photo" style={{ background: '#252525', color: 'white', border: '1px solid #555', borderRadius: 12, padding: 12, fontSize: 16 }} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}><label htmlFor="mf-text-color">Couleur</label><input id="mf-text-color" type="color" value={textColor} onChange={e => setTextColor(e.target.value)} /><label htmlFor="mf-text-size">Taille</label><input id="mf-text-size" type="range" min="24" max="76" value={textSize} onChange={e => setTextSize(Number(e.target.value))} style={{ flex: 1 }} /></div>
-        <label style={{ display: 'grid', gap: 5 }}>Luminosité / exposition visuelle : {brightness}% <input type="range" min="50" max="160" value={brightness} onChange={e => setBrightness(Number(e.target.value))} /></label>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 5 }}>{(['normal','contrast','warm','mono'] as const).map(f => <button key={f} type="button" onClick={() => setFilter(f)} style={{ border: filter === f ? '2px solid white' : '1px solid #555', background: '#242424', color: '#fff', borderRadius: 12, padding: '9px 12px', flex: 1 }}>{f === 'normal' ? 'Normal' : f === 'contrast' ? 'Éclat' : f === 'warm' ? 'Chaud' : 'N&B'}</button>)}</div>
+    <div style={{ background: '#101014', padding: '12px 16px 16px', display: 'grid', gap: 12, maxHeight: '36vh', overflowY: 'auto' }}>
+      {isVideo ? <small style={{ color: '#bbb' }}>Vidéo conservée sans retouche pour le moment.</small> : <>
+        <input id="mf-studio-text" value={caption} onChange={e => setCaption(e.target.value)} maxLength={120} placeholder="Aa  Ajouter du texte…" aria-label="Texte sur la photo" style={{ background: '#25252b', color: '#fff', border: '1px solid #444', borderRadius: 14, padding: 12, fontSize: 16, width: '100%' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 13 }}>
+          <label htmlFor="mf-text-color">Couleur</label><input id="mf-text-color" type="color" value={textColor} onChange={e => setTextColor(e.target.value)} />
+          <label htmlFor="mf-text-size">Taille</label><input id="mf-text-size" type="range" min="24" max="76" value={textSize} onChange={e => setTextSize(Number(e.target.value))} style={{ flex: 1 }} />
+        </div>
+        <label style={{ display: 'grid', gap: 4, fontSize: 13 }}>Luminosité : {brightness}%<input type="range" min="50" max="160" value={brightness} onChange={e => setBrightness(Number(e.target.value))} /></label>
+        <div style={{ display: 'flex', gap: 7 }}>{(['normal','contrast','warm','mono'] as const).map(f => <button key={f} type="button" onClick={() => setFilter(f)} style={{ border: filter === f ? '2px solid #ff8a4b' : '1px solid #555', background: '#24242a', color: '#fff', borderRadius: 12, padding: '9px 6px', flex: 1, fontSize: 12 }}>{f === 'normal' ? 'Normal' : f === 'contrast' ? 'Éclat' : f === 'warm' ? 'Chaud' : 'N&B'}</button>)}</div>
       </>}
-      {error && <small role="alert" style={{ color: '#ff7777' }}>{error}</small>}
     </div>
   </div>
 }
