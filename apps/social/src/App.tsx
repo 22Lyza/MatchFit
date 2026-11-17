@@ -1,11 +1,12 @@
 
+
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 import { Capacitor, registerPlugin } from '@capacitor/core'
 import type { BackgroundGeolocationPlugin } from '@capacitor-community/background-geolocation'
-import { Camera } from '@capacitor/camera'
+import { FilePicker } from '@capawesome/capacitor-file-picker'
 
 const BackgroundGeolocation = registerPlugin<BackgroundGeolocationPlugin>('BackgroundGeolocation')
 
@@ -512,33 +513,42 @@ function MatchFitCamera({ onCapture, onClose, mode, onMode }: {
   const [facing, setFacing] = useState<'user' | 'environment'>('environment')
   const galleryRef = useRef<HTMLInputElement | null>(null)
   async function openGallery() {
-    // Sans plugin natif correctement lié, revenir au sélecteur iOS sans erreur.
-    // Le plugin Camera ne sélectionne que des images : conserver l'import vidéo
-    // via le sélecteur système en mode Réel.
-    if (!Capacitor.isNativePlatform() || !Capacitor.isPluginAvailable('Camera') || mode === 'reel') {
+    setError('')
+    if (!Capacitor.isNativePlatform()) {
       galleryRef.current?.click()
       return
     }
     try {
-      // iOS ouvre directement la photothèque, sans menu Caméra/Fichiers.
-      const picked = await Camera.pickImages({ limit: 1, quality: 95 })
-      const photo = picked.photos[0]
-      if (!photo) return
-      const response = await fetch(photo.webPath)
-      if (!response.ok) throw new Error('Photo indisponible.')
+      // Le sélecteur natif iOS affiche directement Photos, images ET vidéos.
+      const result = await FilePicker.pickMedia({ limit: 1, readData: false, skipTranscoding: false })
+      const selected = result.files[0]
+      if (!selected) return
+      if (!selected.webPath) throw new Error('Le média sélectionné est inaccessible.')
+      const response = await fetch(selected.webPath)
+      if (!response.ok) throw new Error('Impossible de lire le média sélectionné.')
       const blob = await response.blob()
-      const mime = blob.type.startsWith('image/') ? blob.type : 'image/jpeg'
-      onCapture(new File([blob], `matchfit-${Date.now()}.${mime === 'image/png' ? 'png' : 'jpg'}`, { type: mime }))
+      const mime = selected.mimeType || blob.type || (selected.name.toLowerCase().endsWith('.mp4') ? 'video/mp4' : 'image/jpeg')
+      onCapture(new File([blob], selected.name || `matchfit-${Date.now()}`, { type: mime }))
     } catch (err) {
-      if (String(err).toLowerCase().includes('cancel')) return
-      // Une installation iOS plus ancienne peut ne pas exposer le plugin.
-      // Dans ce cas, ne pas bloquer la galerie par une erreur rouge.
       const message = err instanceof Error ? err.message : String(err)
-      if (/not implemented|not available|unavailable|plugin.*ios/i.test(message)) {
-        galleryRef.current?.click()
-        return
+      if (/cancel|dismiss/i.test(message)) return
+      setError(/not implemented|not available|unavailable|plugin.*ios/i.test(message)
+        ? 'La photothèque native n’est pas installée. Lance npm install et npx cap sync ios, puis réinstalle MatchFit depuis Xcode.'
+        : message || 'Impossible d’ouvrir la photothèque.')
+    }
+  }
+  async function retryCameraPermission() {
+    setError('')
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facing } }, audio: true })
+      streamRef.current?.getTracks().forEach(track => track.stop())
+      streamRef.current = stream
+      if (previewRef.current) {
+        previewRef.current.srcObject = stream
+        void previewRef.current.play().catch(() => {})
       }
-      setError(message || 'Impossible d’ouvrir la photothèque.')
+    } catch {
+      setError('Accès à la caméra ou au micro refusé. Tu peux modifier cette autorisation dans Réglages → MatchFit sur ton iPhone.')
     }
   }
   useEffect(() => {
@@ -550,7 +560,7 @@ function MatchFitCamera({ onCapture, onClose, mode, onMode }: {
         streamRef.current = stream
         if (previewRef.current) { previewRef.current.srcObject = stream; void previewRef.current.play().catch(() => {}) }
         setError('')
-      } catch { if (!cancelled) setError('Autorise la caméra et le micro dans les réglages de ton iPhone.') }
+      } catch { if (!cancelled) setError('Accès à la caméra ou au micro refusé. Vérifie les autorisations dans Réglages → MatchFit sur ton iPhone.') }
     }
     void start()
     return () => {
@@ -606,7 +616,7 @@ function MatchFitCamera({ onCapture, onClose, mode, onMode }: {
     <div style={{ flex: 1, minHeight: 0, background: '#14141a', position: 'relative' }}>
       <video ref={previewRef} muted playsInline autoPlay style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
       {recording && <strong style={{ position: 'absolute', top: 20, left: 20, color: '#ff5a5a' }}>● REC</strong>}
-      {error && <p role="alert" style={{ position: 'absolute', bottom: 12, left: 12, right: 12, color: '#fff', background: '#7d2727', padding: 10, borderRadius: 8 }}>{error}</p>}
+      {error && <div role="alert" style={{ position: 'absolute', bottom: 12, left: 12, right: 12, color: '#fff', background: '#24252e', padding: 12, borderRadius: 12, border: '1px solid #555' }}><p style={{ margin: '0 0 8px' }}>{error}</p><button type="button" onClick={() => void retryCameraPermission()} style={{ color: '#ff8a4b', background: 'transparent', border: '1px solid #ff8a4b', borderRadius: 8, padding: 8 }}>Réessayer l’autorisation</button></div>}
     </div>
     <div style={{ padding: '18px 20px 24px', display: 'grid', justifyItems: 'center', gap: 20 }}>
       <div style={{ display: 'flex', gap: 24, justifyContent: 'center' }}>{(['story','publication','reel'] as const).map(value => <button key={value} type="button" onClick={() => onMode(value)} style={{ border: 0, background: 'transparent', color: mode === value ? '#ff8a4b' : '#bbb', fontWeight: mode === value ? 800 : 400, textTransform: 'uppercase', fontSize: 13 }}>{value === 'reel' ? 'Réel' : value}</button>)}</div>
