@@ -7,9 +7,19 @@ import { supabase } from './supabase'
 import { Capacitor, registerPlugin } from '@capacitor/core'
 import type { BackgroundGeolocationPlugin } from '@capacitor-community/background-geolocation'
 import { FilePicker } from '@capawesome/capacitor-file-picker'
-import { Camera, CameraResultType, CameraSource } from '@capacitor/camera'
 
 const BackgroundGeolocation = registerPlugin<BackgroundGeolocationPlugin>('BackgroundGeolocation')
+
+// Pont vers la caméra AVFoundation personnalisée (iOS).
+type MatchFitNativeCameraResult = {
+  path: string
+  name: string
+  mimeType: string
+}
+type MatchFitNativeCameraAPI = {
+  openCamera(): Promise<MatchFitNativeCameraResult>
+}
+const MatchFitNativeCamera = registerPlugin<MatchFitNativeCameraAPI>('MatchFitNativeCamera')
 
 // Carte OpenStreetMap interactive via Leaflet (chargement à la demande).
 // Aucun changement de dépendance npm n'est nécessaire.
@@ -504,8 +514,22 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
   const [brightness, setBrightness] = useState(100)
   const [filter, setFilter] = useState<'normal' | 'contrast' | 'warm' | 'mono'>('normal')
   const [caption, setCaption] = useState('')
+  const [comment, setComment] = useState('')
+  const [activeTool, setActiveTool] = useState<'text' | 'filter' | 'light' | null>(null)
   const [textColor, setTextColor] = useState('#ffffff')
   const [textSize, setTextSize] = useState(48)
+  const activePointers = useRef<Map<number, {x:number;y:number}>>(new Map())
+  const textPinchDistance = useRef<number | null>(null)
+  const textPinchStartSize = useRef(48)
+  const pinchHappened = useRef(false)
+  const updatePinch = () => {
+    const pointers = [...activePointers.current.values()]
+    if (pointers.length < 2) return
+    const distance = Math.hypot(pointers[0].x-pointers[1].x,pointers[0].y-pointers[1].y)
+    if (!textPinchDistance.current) { textPinchDistance.current = distance; textPinchStartSize.current = textSize; return }
+    if (Math.abs(distance-textPinchDistance.current)>3) pinchHappened.current = true
+    setTextSize(Math.max(12,Math.min(180,Math.round(textPinchStartSize.current*distance/textPinchDistance.current))))
+  }
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const isVideo = file.type.startsWith('video/')
@@ -549,6 +573,27 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
           ctx.fillText(text, canvas.width / 2, y)
         })
       }
+      if (comment.trim()) {
+        const fontSize = Math.max(24, Math.round(canvas.width * 26 / 390))
+        ctx.font = `600 ${fontSize}px -apple-system, Arial, sans-serif`
+        ctx.textAlign = 'left'; ctx.textBaseline = 'bottom'
+        const words = comment.trim().split(/\s+/)
+        const lines: string[] = []; let line = ''
+        for (const word of words) {
+          const candidate = line ? `${line} ${word}` : word
+          if (ctx.measureText(candidate).width > canvas.width * .84 && line) { lines.push(line); line = word }
+          else line = candidate
+        }
+        if (line) lines.push(line)
+        const x = canvas.width * .07
+        const baseY = canvas.height * .93
+        lines.slice(-3).forEach((text, index, arr) => {
+          const y = baseY - (arr.length - 1 - index) * fontSize * 1.3
+          ctx.lineWidth = Math.max(3, fontSize / 9)
+          ctx.strokeStyle = '#000a'; ctx.strokeText(text, x, y)
+          ctx.fillStyle = '#fff'; ctx.fillText(text, x, y)
+        })
+      }
       bitmap.close()
       const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(b => b ? resolve(b) : reject(new Error('Export impossible')), 'image/jpeg', .98))
       onDone(new File([blob], `matchfit-edited-${Date.now()}.jpg`, { type: 'image/jpeg' }))
@@ -556,25 +601,74 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
     finally { setSaving(false) }
   }
   return <div style={{ position: 'fixed', inset: 0, zIndex: 5000, background: '#050505', color: '#fff', display: 'flex', flexDirection: 'column', paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 18px' }}>
-      <button type="button" onClick={onCancel} style={{ color: 'white', border: 0, background: 'transparent', fontSize: 30 }} aria-label="Annuler">×</button>
-      <strong>Modifier {isVideo ? 'la vidéo' : 'la photo'}</strong>
-      <button type="button" disabled={saving} onClick={() => void finish()} style={{ background: '#4567ff', color: 'white', border: 0, borderRadius: 24, padding: '10px 17px', fontWeight: 700 }}>{saving ? 'Export…' : 'Suivant →'}</button>
-    </div>
-    <div style={{ position: 'relative', flex: 1, minHeight: 0, overflow: 'hidden', background: '#171717', display: 'grid', placeItems: 'center' }}>
+    <div style={{ position: 'relative', flex: 1, minHeight: 0, background: '#101014', overflow: 'hidden' }}>
       {url && (isVideo ? <video src={url} playsInline controls style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> : <img src={url} alt="Photo à modifier" style={{ width: '100%', height: '100%', objectFit: 'contain', filter: cssFilter }} />)}
-      {!!caption.trim() && <div style={{ position: 'absolute', top: '50%', left: '8%', right: '8%', transform: 'translateY(-50%)', pointerEvents: 'none', color: textColor, fontWeight: 800, fontSize: `${textSize}px`, textAlign: 'center', overflowWrap: 'anywhere', textShadow: '0 2px 5px #000, 0 0 12px #000' }}>{caption}</div>}
-    </div>
-    <div style={{ padding: '12px 18px 18px', display: 'grid', gap: 12, maxHeight: '38vh', overflowY: 'auto' }}>
-      {isVideo ? <small style={{ color: '#bbb' }}>La vidéo originale est conservée. Les retouches photo seront disponibles pour les vidéos dans une prochaine version.</small> : <>
-        <input value={caption} onChange={e => setCaption(e.target.value)} maxLength={120} placeholder="Aa  Ajouter du texte sur la photo" aria-label="Texte sur la photo" style={{ background: '#252525', color: 'white', border: '1px solid #555', borderRadius: 12, padding: 12, fontSize: 16 }} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}><label htmlFor="mf-text-color">Couleur</label><input id="mf-text-color" type="color" value={textColor} onChange={e => setTextColor(e.target.value)} /><label htmlFor="mf-text-size">Taille</label><input id="mf-text-size" type="range" min="24" max="76" value={textSize} onChange={e => setTextSize(Number(e.target.value))} style={{ flex: 1 }} /></div>
-        <label style={{ display: 'grid', gap: 5 }}>Luminosité / exposition visuelle : {brightness}% <input type="range" min="50" max="160" value={brightness} onChange={e => setBrightness(Number(e.target.value))} /></label>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 5 }}>{(['normal','contrast','warm','mono'] as const).map(f => <button key={f} type="button" onClick={() => setFilter(f)} style={{ border: filter === f ? '2px solid white' : '1px solid #555', background: '#242424', color: '#fff', borderRadius: 12, padding: '9px 12px', flex: 1 }}>{f === 'normal' ? 'Normal' : f === 'contrast' ? 'Éclat' : f === 'warm' ? 'Chaud' : 'N&B'}</button>)}</div>
-      </>}
-      {error && <small role="alert" style={{ color: '#ff7777' }}>{error}</small>}
+      {!!caption.trim() && !isVideo && <div
+        role="button" tabIndex={0} aria-label="Modifier le texte sur la photo"
+        onClick={() => { if (!pinchHappened.current) setActiveTool('text'); pinchHappened.current=false }}
+        onKeyDown={e => { if(e.key==='Enter' || e.key===' ') setActiveTool('text') }}
+        onPointerDown={e => { activePointers.current.set(e.pointerId,{x:e.clientX,y:e.clientY}); e.currentTarget.setPointerCapture(e.pointerId); updatePinch() }}
+        onPointerMove={e => { if(activePointers.current.has(e.pointerId)) { activePointers.current.set(e.pointerId,{x:e.clientX,y:e.clientY}); updatePinch() } }}
+        onPointerUp={e => { activePointers.current.delete(e.pointerId); if(activePointers.current.size<2) textPinchDistance.current=null }}
+        onPointerCancel={e => { activePointers.current.delete(e.pointerId); textPinchDistance.current=null }}
+        style={{ position:'absolute', top:'50%', left:'8%', right:'8%', transform:'translateY(-50%)', color:textColor, fontWeight:800, fontSize:`${textSize}px`, textAlign:'center', overflowWrap:'anywhere', textShadow:'0 2px 5px #000, 0 0 12px #000', touchAction:'none', userSelect:'none', cursor:'pointer', lineHeight:1.15 }}
+      >{caption}</div>}
+      {!!comment.trim() && !isVideo && <div style={{ position: 'absolute', bottom: 90, left: '7%', right: '7%', pointerEvents: 'none', fontSize: 19, fontWeight: 600, textShadow: '0 1px 5px #000, 0 0 8px #000', overflowWrap: 'anywhere' }}>{comment}</div>}
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(#000a,transparent)' }}>
+        <button type="button" onClick={onCancel} aria-label="Reprendre une photo" style={{ color: '#fff', background: '#0007', border: 0, borderRadius: 24, width: 42, height: 42, fontSize: 27 }}>×</button>
+        <strong>MATCH<span style={{ color: '#ff8a4b' }}>FIT</span></strong>
+        <button type="button" disabled={saving} onClick={() => void finish()} style={{ color: '#fff', background: '#ff704e', border: 0, borderRadius: 24, padding: '11px 16px', fontWeight: 800 }}>{saving ? 'Export…' : 'Suivant →'}</button>
+      </div>
+      {!isVideo && <div style={{ position: 'absolute', right: 12, top: 86, display: 'grid', gap: 13 }}>
+        <button type="button" onClick={() => setActiveTool(t => t === 'text' ? null : 'text')} aria-label="Ajouter du texte sur la photo" style={{ border: 0, background: '#000a', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 22, fontWeight: 800 }}>Aa</button>
+        <button type="button" onClick={() => setActiveTool(t => t === 'filter' ? null : 'filter')} aria-label="Filtres" style={{ border: 0, background: '#000a', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 22 }}>◐</button>
+        <button type="button" onClick={() => setActiveTool(t => t === 'light' ? null : 'light')} aria-label="Luminosité" style={{ border: 0, background: '#000a', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 22 }}>☀</button>
+      </div>}
+      {activeTool && !isVideo && <div style={{ position: 'absolute', top: 240, left: 16, right: 70, background: '#17171eea', border: '1px solid #ffffff30', borderRadius: 16, padding: 12, display: 'grid', gap: 12 }}>
+        {activeTool === 'text' && <><input value={caption} onChange={e => setCaption(e.target.value)} maxLength={120} placeholder="Texte sur l'image…" aria-label="Texte sur l'image" autoFocus style={{ width: '100%', background: '#292933', color: '#fff', border: '1px solid #555', borderRadius: 9, padding: 10, fontSize: 16 }} /><div style={{ display: 'flex', gap: 10, alignItems: 'center' }}><input type="color" value={textColor} onChange={e => setTextColor(e.target.value)} aria-label="Couleur du texte" /><input type="range" min="16" max="160" value={textSize} onChange={e => setTextSize(Number(e.target.value))} aria-label="Taille du texte" style={{ flex: 1 }} /></div></>}
+        {activeTool === 'filter' && <div style={{ display: 'flex', gap: 5 }}>{(['normal','contrast','warm','mono'] as const).map(f => <button key={f} type="button" onClick={() => setFilter(f)} style={{ border: filter === f ? '2px solid #ff8a4b' : '1px solid #555', background: '#252530', color: '#fff', borderRadius: 9, padding: '9px 5px', flex: 1, fontSize: 11 }}>{f === 'normal' ? 'Normal' : f === 'contrast' ? 'Éclat' : f === 'warm' ? 'Chaud' : 'N&B'}</button>)}</div>}
+        {activeTool === 'light' && <label style={{ display: 'grid', gap: 8, fontSize: 13 }}>Luminosité {brightness}%<input type="range" min="50" max="160" value={brightness} onChange={e => setBrightness(Number(e.target.value))} /></label>}
+        <button type="button" onClick={() => setActiveTool(null)} style={{ justifySelf: 'end', border: 0, background: '#ffffff22', color: '#fff', padding: '7px 13px', borderRadius: 9 }}>Terminé</button>
+      </div>}
+      {error && <div role="alert" style={{ position: 'absolute', bottom: 85, left: 16, right: 16, color: '#ffb0b0', background: '#000d', borderRadius: 12, padding: 10 }}>{error}</div>}
+      {!isVideo && <div style={{ position: 'absolute', bottom: 12, left: 16, right: 16 }}><input value={comment} onChange={e => setComment(e.target.value)} maxLength={160} placeholder="Ajouter un commentaire…" aria-label="Commentaire en bas de la photo" style={{ width: '100%', border: '1px solid #ffffff66', borderRadius: 24, background: '#000a', color: '#fff', padding: '14px 18px', fontSize: 16 }} /></div>}
     </div>
   </div>
+}
+
+// Ouvre directement la caméra native iOS, sans afficher l'aperçu web intermédiaire.
+function MatchFitDirectNativeCamera({ onCapture, onClose }: {
+  onCapture: (file: File, mode?: CreationType) => void
+  onClose: () => void
+}) {
+  const launched = useRef(false)
+  useEffect(() => {
+    if (launched.current) return
+    launched.current = true
+    let active = true
+    async function launch() {
+      try {
+        const media = await MatchFitNativeCamera.openCamera()
+        if (!media.path) throw new Error('Photo inaccessible après la capture.')
+        const response = await fetch(Capacitor.convertFileSrc(media.path))
+        if (!response.ok) throw new Error('Impossible de lire la photo sélectionnée.')
+        const blob = await response.blob()
+        if (active) onCapture(new File([blob], media.name || `matchfit-${Date.now()}.jpg`, {
+          type: media.mimeType || blob.type || 'image/jpeg'
+        }), media.mode)
+      } catch (err) {
+        if (!active) return
+        const message = err instanceof Error ? err.message : String(err)
+        if (!/cancel|dismiss|annul/i.test(message)) {
+          alert(message || 'Impossible d’ouvrir la caméra MatchFit.')
+        }
+        onClose()
+      }
+    }
+    void launch()
+    return () => { active = false }
+  }, [])
+  return null
 }
 
 function MatchFitCamera({ onCapture, onClose, mode, onMode }: {
@@ -582,6 +676,7 @@ function MatchFitCamera({ onCapture, onClose, mode, onMode }: {
   mode: 'story' | 'publication' | 'reel'; onMode: (mode: 'story' | 'publication' | 'reel') => void
 }) {
   const previewRef = useRef<HTMLVideoElement | null>(null)
+  const nativeLaunchStarted = useRef(false)
   const streamRef = useRef<MediaStream | null>(null)
   const recorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
@@ -634,6 +729,7 @@ function MatchFitCamera({ onCapture, onClose, mode, onMode }: {
     }
   }
   useEffect(() => {
+    if (Capacitor.isNativePlatform()) return
     let cancelled = false
     async function start() {
       try {
@@ -668,29 +764,39 @@ function MatchFitCamera({ onCapture, onClose, mode, onMode }: {
     setNativePhotoBusy(true)
     setError('')
     try {
-      // La capture native iOS fournit une vraie photo, pas une image de l'aperçu vidéo.
-      const photo = await Camera.getPhoto({
-        source: CameraSource.Camera,
-        resultType: CameraResultType.Uri,
-        quality: 100,
-        allowEditing: false,
-        saveToGallery: false,
-        correctOrientation: true,
-      })
-      if (!photo.webPath) throw new Error('Photo inaccessible après la capture.')
-      const response = await fetch(photo.webPath)
+      const photo = await MatchFitNativeCamera.openCamera()
+      if (!photo.path) throw new Error('Photo inaccessible après la capture.')
+      const webPath = Capacitor.convertFileSrc(photo.path)
+      const response = await fetch(webPath)
       if (!response.ok) throw new Error('Impossible de lire la photo prise.')
       const blob = await response.blob()
-      const extension = photo.format === 'png' ? 'png' : 'jpeg'
-      const mime = blob.type || (extension === 'png' ? 'image/png' : 'image/jpeg')
-      onCapture(new File([blob], `matchfit-native-${Date.now()}.${extension === 'png' ? 'png' : 'jpg'}`, { type: mime }))
+      onCapture(new File(
+        [blob],
+        photo.name || `matchfit-native-${Date.now()}.jpg`,
+        { type: photo.mimeType || blob.type || 'image/jpeg' }
+      ))
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      if (!/cancel|dismiss|annul/i.test(message)) setError(message || 'Impossible de prendre la photo native.')
+      if (/cancel|dismiss|annul/i.test(message)) {
+        onClose()
+      } else {
+        alert(message || 'Impossible d’ouvrir la caméra MatchFit.')
+        onClose()
+      }
     } finally {
       setNativePhotoBusy(false)
     }
   }
+  // Sur iPhone, ouvrir immédiatement l’interface native complète (caméra + photothèque).
+  // Évite l’écran intermédiaire de caméra web et l’accès concurrent à AVFoundation.
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform() || nativeLaunchStarted.current) return
+    nativeLaunchStarted.current = true
+    void takeNativePhoto()
+    // Lancement unique à l’ouverture du composant.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   function takePhoto() {
     const video = previewRef.current
     if (!video || !video.videoWidth) return
@@ -731,6 +837,8 @@ function MatchFitCamera({ onCapture, onClose, mode, onMode }: {
     else if (Capacitor.isNativePlatform()) void takeNativePhoto()
     else takePhoto()
   }
+  if (Capacitor.isNativePlatform()) return null
+
   return <div style={{ position: 'fixed', inset: 0, zIndex: 4000, background: '#050506', display: 'flex', flexDirection: 'column', paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
     <div style={{ display: 'flex', justifyContent: 'space-between', padding: 15, alignItems: 'center' }}>
       <button type="button" onClick={onClose} style={{ background: 'transparent', border: 0, color: 'white', fontSize: 28 }}>×</button>
@@ -799,6 +907,8 @@ function App() {
   const [creationType, setCreationType] = useState<CreationType | null>(null)
   const [stories, setStories] = useState<StoryView[]>([])
   const [storyFile, setStoryFile] = useState<File | null>(null)
+  const [archiveMonth, setArchiveMonth] = useState(() => new Date().toISOString().slice(0,7))
+  const [archiveSelectedDay, setArchiveSelectedDay] = useState<string | null>(null)
   const [storyPreview, setStoryPreview] = useState<string | null>(null)
   const [storyBusy, setStoryBusy] = useState(false)
   const [storyError, setStoryError] = useState('')
@@ -2171,7 +2281,8 @@ function App() {
     setCreationType(mode)
     setCameraOpen(true)
   }
-  function capturedMedia(file: File) {
+  function capturedMedia(file: File, mode?: CreationType) {
+    if (mode) setCreationType(mode)
     setCameraOpen(false)
     setEditingFile(file)
   }
@@ -3331,12 +3442,30 @@ function App() {
             <div style={cardStyle}>
               <h3>Mes stories archivées</h3>
               {storyError && <p role="alert" style={{ color: '#ff7777' }}>{storyError}</p>}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                <button type="button" aria-label="Mois précédent" onClick={() => { const [y,m]=archiveMonth.split('-').map(Number); setArchiveMonth(`${new Date(y,m-2,1).getFullYear()}-${String(new Date(y,m-2,1).getMonth()+1).padStart(2,'0')}`); setArchiveSelectedDay(null) }}>‹</button>
+                <strong>{new Date(Number(archiveMonth.slice(0,4)), Number(archiveMonth.slice(5,7))-1, 1).toLocaleDateString('fr-CH',{month:'long',year:'numeric'})}</strong>
+                <button type="button" aria-label="Mois suivant" onClick={() => { const [y,m]=archiveMonth.split('-').map(Number); setArchiveMonth(`${new Date(y,m,1).getFullYear()}-${String(new Date(y,m,1).getMonth()+1).padStart(2,'0')}`); setArchiveSelectedDay(null) }}>›</button>
+              </div>
+              <div style={{ display:'grid',gridTemplateColumns:'repeat(7,minmax(0,1fr))',gap:4,textAlign:'center',marginBottom:18 }}>
+                {['L','M','M','J','V','S','D'].map((day,i)=><span key={i} style={{color:'#999',fontSize:12}}>{day}</span>)}
+                {Array.from({length:(new Date(Number(archiveMonth.slice(0,4)),Number(archiveMonth.slice(5,7))-1,1).getDay()+6)%7},(_,i)=><span key={'empty'+i}/>)}
+                {Array.from({length:new Date(Number(archiveMonth.slice(0,4)),Number(archiveMonth.slice(5,7)),0).getDate()},(_,i)=>{
+                  const date=archiveMonth+'-'+String(i+1).padStart(2,'0')
+                  const hasArchive=storyArchive.some(item=>{const d=new Date(item.created_at);return d.getFullYear()===Number(archiveMonth.slice(0,4))&&d.getMonth()+1===Number(archiveMonth.slice(5,7))&&d.getDate()===i+1})
+                  return <button key={date} type="button" onClick={()=>setArchiveSelectedDay(prev=>prev===date?null:date)} style={{background:archiveSelectedDay===date?'#ff6558':'transparent',color:'#fff',border:0,borderRadius:10,padding:'8px 0 3px',display:'grid',justifyItems:'center',gap:3}}>
+                    <span>{i+1}</span><span style={{width:5,height:5,borderRadius:'50%',background:hasArchive?'#ff404e':'transparent'}}/>
+                  </button>
+                })}
+              </div>
+              {archiveSelectedDay && <p style={{fontSize:13,color:'#aaa'}}>Stories du {new Date(archiveSelectedDay+'T12:00:00').toLocaleDateString('fr-CH',{day:'numeric',month:'long',year:'numeric'})}</p>}
               {storyArchive.length === 0 && <p>Aucune story archivée pour le moment.</p>}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
-                {storyArchive.map(item => <div key={item.id}>
+                {storyArchive.filter(item => !archiveSelectedDay || (()=>{const d=new Date(item.created_at);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`===archiveSelectedDay})()).map(item => <div key={item.id}>
                   <button type="button" onClick={() => openStoryViewer([item])} style={{ border: 0, padding: 0, width: '100%', background: '#24252e', color: '#fff' }}>
                     {item.media_type === 'video' ? <video src={item.url} muted playsInline style={{ width: '100%', aspectRatio: '3/4', objectFit: 'cover' }} /> : <img src={item.url} alt="Story archivée" style={{ width: '100%', aspectRatio: '3/4', objectFit: 'cover' }} />}
                   </button>
+                  {item.is_highlight && <div style={{fontSize:11,color:'#ff5966',fontWeight:700,textAlign:'center'}}>● À la une</div>}
                   <button type="button" onClick={() => void toggleStoryHighlight(item)} style={{ fontSize: 11, width: '100%' }}>{item.is_highlight ? '★ À la une' : '☆ Mettre à la une'}</button>
                 </div>)}
               </div>
@@ -3553,7 +3682,9 @@ function App() {
       )}
 
       {editingFile && <MatchFitMediaEditor file={editingFile} onDone={completeMediaEdit} onCancel={() => { setEditingFile(null); setCameraOpen(true) }} />}
-      {cameraOpen && <MatchFitCamera mode={creationType === 'reel' ? 'reel' : creationType === 'publication' ? 'publication' : 'story'} onMode={mode => setCreationType(mode)} onClose={() => setCameraOpen(false)} onCapture={capturedMedia} />}
+      {cameraOpen && Capacitor.getPlatform() === 'ios'
+        ? <MatchFitDirectNativeCamera onClose={() => setCameraOpen(false)} onCapture={capturedMedia} />
+        : cameraOpen && <MatchFitCamera mode={creationType === 'reel' ? 'reel' : creationType === 'publication' ? 'publication' : 'story'} onMode={mode => setCreationType(mode)} onClose={() => setCameraOpen(false)} onCapture={capturedMedia} />}
       {creationOpen && (
         <div className="creation-overlay">
           <div className="creation-panel">
@@ -3573,7 +3704,6 @@ function App() {
               <div className="creation-form">
                 <form onSubmit={publishStory} style={{ display: 'grid', gap: 12 }}>
                   <p>Ta story sera visible pendant 24 h. Les comptes privés sont protégés.</p>
-                  <input type="file" accept="image/jpeg,image/png,image/webp,video/mp4" required onChange={event => setStoryFile(event.target.files?.[0] || null)} />
                   {storyPreview && (storyFile?.type === 'video/mp4' ? <video src={storyPreview} controls playsInline style={{ maxHeight: 320, width: '100%' }} /> : <img src={storyPreview} alt="Aperçu" style={{ maxHeight: 320, width: '100%', objectFit: 'contain' }} />)}
                   {storyError && <p role="alert" style={{ color: '#ff7777' }}>{storyError}</p>}
                   <button type="submit" disabled={storyBusy || !storyFile} style={primaryStyle}>{storyBusy ? 'Publication…' : 'Publier ma story'}</button>
