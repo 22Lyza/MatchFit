@@ -15,6 +15,7 @@ type MatchFitNativeCameraResult = {
   path: string
   name: string
   mimeType: string
+  mode?: "story" | "reel" | "publication"
 }
 type MatchFitNativeCameraAPI = {
   openCamera(): Promise<MatchFitNativeCameraResult>
