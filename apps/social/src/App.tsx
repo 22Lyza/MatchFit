@@ -641,7 +641,7 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
     <div style={{ position: 'relative', flex: 1, minHeight: 0, background: '#101014', overflow: 'hidden' }}>
       <div ref={photoFrame} style={{ position: 'absolute', inset: 0, overflow: 'hidden', touchAction: isVideo ? 'auto' : 'none' }}
         onPointerDown={e => {
-          if (isVideo) return
+          if (isVideo || (e.target as HTMLElement).closest('[data-matchfit-text-layer]')) return
           e.currentTarget.setPointerCapture(e.pointerId)
           photoPointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
           const points = [...photoPointers.current.values()]
@@ -665,14 +665,44 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
       </div>
       {!isVideo && <button type="button" onClick={() => { setPhotoZoom(1); setPhotoOffset({ x: 0, y: 0 }) }} style={{ position: 'absolute', bottom: 96, left: 12, zIndex: 2, background: '#000a', color: '#fff', border: 0, borderRadius: 12, padding: '9px 12px' }}>Réinitialiser le cadrage</button>}
       {!!caption.trim() && !isVideo && <div
-        role="button" tabIndex={0} aria-label="Modifier le texte sur la photo"
+        role="button" tabIndex={0} data-matchfit-text-layer="true" aria-label="Modifier le texte sur la photo"
         onClick={() => { if (!pinchHappened.current) setActiveTool('text'); pinchHappened.current=false }}
         onKeyDown={e => { if(e.key==='Enter' || e.key===' ') setActiveTool('text') }}
-        onPointerDown={e => { activePointers.current.set(e.pointerId,{x:e.clientX,y:e.clientY}); e.currentTarget.setPointerCapture(e.pointerId); textDrag.current = { x:e.clientX, y:e.clientY, ox:textOffset.x, oy:textOffset.y }; updatePinch() }}
-        onPointerMove={e => { if(activePointers.current.has(e.pointerId)) { activePointers.current.set(e.pointerId,{x:e.clientX,y:e.clientY}); if(activePointers.current.size === 1 && textDrag.current) setTextOffset({ x: textDrag.current.ox + e.clientX - textDrag.current.x, y: textDrag.current.oy + e.clientY - textDrag.current.y }); updatePinch() } }}
-        onPointerUp={e => { activePointers.current.delete(e.pointerId); if(activePointers.current.size<2) textPinchDistance.current=null; textDrag.current=null }}
-        onPointerCancel={e => { activePointers.current.delete(e.pointerId); textPinchDistance.current=null }}
-        style={{ position:'absolute', top:'50%', left:'8%', right:'8%', transform:`translate(calc(-0px + ${textOffset.x}px), calc(-50% + ${textOffset.y}px))`, color:textColor, fontWeight:800, fontSize:`${textSize}px`, textAlign:'center', overflowWrap:'anywhere', textShadow:'0 2px 5px #000, 0 0 12px #000', touchAction:'none', userSelect:'none', cursor:'pointer', lineHeight:1.15 }}
+        onPointerDown={e => {
+          e.stopPropagation()
+          activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+          e.currentTarget.setPointerCapture(e.pointerId)
+          if (activePointers.current.size === 1) {
+            textDrag.current = { x: e.clientX, y: e.clientY, ox: textOffset.x, oy: textOffset.y }
+            textPinchDistance.current = null
+          } else {
+            textDrag.current = null
+            updatePinch()
+          }
+        }}
+        onPointerMove={e => {
+          e.stopPropagation()
+          if (!activePointers.current.has(e.pointerId)) return
+          activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+          if (activePointers.current.size === 1 && textDrag.current) {
+            setTextOffset({ x: textDrag.current.ox + e.clientX - textDrag.current.x, y: textDrag.current.oy + e.clientY - textDrag.current.y })
+          } else if (activePointers.current.size >= 2) {
+            updatePinch()
+          }
+        }}
+        onPointerUp={e => {
+          e.stopPropagation()
+          activePointers.current.delete(e.pointerId)
+          textDrag.current = null
+          textPinchDistance.current = null
+        }}
+        onPointerCancel={e => {
+          e.stopPropagation()
+          activePointers.current.delete(e.pointerId)
+          textDrag.current = null
+          textPinchDistance.current = null
+        }}
+        style={{ position:'absolute', top:'50%', left:'50%', width:'max-content', maxWidth:'84%', transform:`translate(calc(-50% + ${textOffset.x}px), calc(-50% + ${textOffset.y}px))`, color:textColor, fontWeight:800, fontSize:`${textSize}px`, textAlign:'center', overflowWrap:'anywhere', whiteSpace:'pre-wrap', textShadow:'0 2px 5px #000, 0 0 12px #000', touchAction:'none', userSelect:'none', cursor:'grab', lineHeight:1.15 }}
       >{caption}</div>}
       {!!comment.trim() && !isVideo && <div style={{ position: 'absolute', bottom: 90, left: '7%', right: '7%', pointerEvents: 'none', fontSize: 19, fontWeight: 600, textShadow: '0 1px 5px #000, 0 0 8px #000', overflowWrap: 'anywhere' }}>{comment}</div>}
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(#000a,transparent)' }}>
