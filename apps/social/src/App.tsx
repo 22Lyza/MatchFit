@@ -518,8 +518,18 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
   const [activeTool, setActiveTool] = useState<'text' | 'filter' | 'light' | null>(null)
   const [textColor, setTextColor] = useState('#ffffff')
   const [textSize, setTextSize] = useState(48)
+  const activePointers = useRef<Map<number, {x:number;y:number}>>(new Map())
   const textPinchDistance = useRef<number | null>(null)
   const textPinchStartSize = useRef(48)
+  const pinchHappened = useRef(false)
+  const updatePinch = () => {
+    const pointers = [...activePointers.current.values()]
+    if (pointers.length < 2) return
+    const distance = Math.hypot(pointers[0].x-pointers[1].x,pointers[0].y-pointers[1].y)
+    if (!textPinchDistance.current) { textPinchDistance.current = distance; textPinchStartSize.current = textSize; return }
+    if (Math.abs(distance-textPinchDistance.current)>3) pinchHappened.current = true
+    setTextSize(Math.max(12,Math.min(180,Math.round(textPinchStartSize.current*distance/textPinchDistance.current))))
+  }
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const isVideo = file.type.startsWith('video/')
@@ -593,7 +603,16 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
   return <div style={{ position: 'fixed', inset: 0, zIndex: 5000, background: '#050505', color: '#fff', display: 'flex', flexDirection: 'column', paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
     <div style={{ position: 'relative', flex: 1, minHeight: 0, background: '#101014', overflow: 'hidden' }}>
       {url && (isVideo ? <video src={url} playsInline controls style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> : <img src={url} alt="Photo à modifier" style={{ width: '100%', height: '100%', objectFit: 'contain', filter: cssFilter }} />)}
-      {!!caption.trim() && !isVideo && <div style={{ position: 'absolute', top: '50%', left: '8%', right: '8%', transform: 'translateY(-50%)', color: textColor, fontWeight: 800, fontSize: `${textSize}px`, textAlign: 'center', overflowWrap: 'anywhere', textShadow: '0 2px 5px #000, 0 0 12px #000', pointerEvents: 'auto', touchAction: 'none' }} onTouchStart={e => { if (e.touches.length === 2) { const a=e.touches[0], b=e.touches[1]; textPinchDistance.current=Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY); textPinchStartSize.current=textSize } }} onTouchMove={e => { if (e.touches.length === 2 && textPinchDistance.current) { const a=e.touches[0], b=e.touches[1]; const distance=Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY); setTextSize(Math.max(16,Math.min(160,Math.round(textPinchStartSize.current*distance/textPinchDistance.current)))) } }} onTouchEnd={e => { if (e.touches.length < 2) textPinchDistance.current=null }}>{caption}</div>}
+      {!!caption.trim() && !isVideo && <div
+        role="button" tabIndex={0} aria-label="Modifier le texte sur la photo"
+        onClick={() => { if (!pinchHappened.current) setActiveTool('text'); pinchHappened.current=false }}
+        onKeyDown={e => { if(e.key==='Enter' || e.key===' ') setActiveTool('text') }}
+        onPointerDown={e => { activePointers.current.set(e.pointerId,{x:e.clientX,y:e.clientY}); e.currentTarget.setPointerCapture(e.pointerId); updatePinch() }}
+        onPointerMove={e => { if(activePointers.current.has(e.pointerId)) { activePointers.current.set(e.pointerId,{x:e.clientX,y:e.clientY}); updatePinch() } }}
+        onPointerUp={e => { activePointers.current.delete(e.pointerId); if(activePointers.current.size<2) textPinchDistance.current=null }}
+        onPointerCancel={e => { activePointers.current.delete(e.pointerId); textPinchDistance.current=null }}
+        style={{ position:'absolute', top:'50%', left:'8%', right:'8%', transform:'translateY(-50%)', color:textColor, fontWeight:800, fontSize:`${textSize}px`, textAlign:'center', overflowWrap:'anywhere', textShadow:'0 2px 5px #000, 0 0 12px #000', touchAction:'none', userSelect:'none', cursor:'pointer', lineHeight:1.15 }}
+      >{caption}</div>}
       {!!comment.trim() && !isVideo && <div style={{ position: 'absolute', bottom: 90, left: '7%', right: '7%', pointerEvents: 'none', fontSize: 19, fontWeight: 600, textShadow: '0 1px 5px #000, 0 0 8px #000', overflowWrap: 'anywhere' }}>{comment}</div>}
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(#000a,transparent)' }}>
         <button type="button" onClick={onCancel} aria-label="Reprendre une photo" style={{ color: '#fff', background: '#0007', border: 0, borderRadius: 24, width: 42, height: 42, fontSize: 27 }}>×</button>
@@ -3445,6 +3464,7 @@ function App() {
                   <button type="button" onClick={() => openStoryViewer([item])} style={{ border: 0, padding: 0, width: '100%', background: '#24252e', color: '#fff' }}>
                     {item.media_type === 'video' ? <video src={item.url} muted playsInline style={{ width: '100%', aspectRatio: '3/4', objectFit: 'cover' }} /> : <img src={item.url} alt="Story archivée" style={{ width: '100%', aspectRatio: '3/4', objectFit: 'cover' }} />}
                   </button>
+                  {item.is_highlight && <div style={{fontSize:11,color:'#ff5966',fontWeight:700,textAlign:'center'}}>● À la une</div>}
                   <button type="button" onClick={() => void toggleStoryHighlight(item)} style={{ fontSize: 11, width: '100%' }}>{item.is_highlight ? '★ À la une' : '☆ Mettre à la une'}</button>
                 </div>)}
               </div>
