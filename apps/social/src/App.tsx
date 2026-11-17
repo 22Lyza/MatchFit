@@ -592,6 +592,7 @@ function MatchFitCamera({ onCapture, onClose, mode, onMode }: {
   mode: 'story' | 'publication' | 'reel'; onMode: (mode: 'story' | 'publication' | 'reel') => void
 }) {
   const previewRef = useRef<HTMLVideoElement | null>(null)
+  const nativeLaunchStarted = useRef(false)
   const streamRef = useRef<MediaStream | null>(null)
   const recorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
@@ -644,6 +645,7 @@ function MatchFitCamera({ onCapture, onClose, mode, onMode }: {
     }
   }
   useEffect(() => {
+    if (Capacitor.isNativePlatform()) return
     let cancelled = false
     async function start() {
       try {
@@ -691,13 +693,26 @@ function MatchFitCamera({ onCapture, onClose, mode, onMode }: {
       ))
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      if (!/cancel|dismiss|annul/i.test(message)) {
-        setError(message || 'Impossible de prendre la photo native.')
+      if (/cancel|dismiss|annul/i.test(message)) {
+        onClose()
+      } else {
+        alert(message || 'Impossible d’ouvrir la caméra MatchFit.')
+        onClose()
       }
     } finally {
       setNativePhotoBusy(false)
     }
   }
+  // Sur iPhone, ouvrir immédiatement l’interface native complète (caméra + photothèque).
+  // Évite l’écran intermédiaire de caméra web et l’accès concurrent à AVFoundation.
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform() || nativeLaunchStarted.current) return
+    nativeLaunchStarted.current = true
+    void takeNativePhoto()
+    // Lancement unique à l’ouverture du composant.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   function takePhoto() {
     const video = previewRef.current
     if (!video || !video.videoWidth) return
@@ -738,6 +753,8 @@ function MatchFitCamera({ onCapture, onClose, mode, onMode }: {
     else if (Capacitor.isNativePlatform()) void takeNativePhoto()
     else takePhoto()
   }
+  if (Capacitor.isNativePlatform()) return null
+
   return <div style={{ position: 'fixed', inset: 0, zIndex: 4000, background: '#050506', display: 'flex', flexDirection: 'column', paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
     <div style={{ display: 'flex', justifyContent: 'space-between', padding: 15, alignItems: 'center' }}>
       <button type="button" onClick={onClose} style={{ background: 'transparent', border: 0, color: 'white', fontSize: 28 }}>×</button>
