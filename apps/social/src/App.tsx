@@ -518,6 +518,8 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
   const [activeTool, setActiveTool] = useState<'text' | 'filter' | 'light' | null>(null)
   const [textColor, setTextColor] = useState('#ffffff')
   const [textSize, setTextSize] = useState(48)
+  const textPinchDistance = useRef<number | null>(null)
+  const textPinchStartSize = useRef(48)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const isVideo = file.type.startsWith('video/')
@@ -591,7 +593,7 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
   return <div style={{ position: 'fixed', inset: 0, zIndex: 5000, background: '#050505', color: '#fff', display: 'flex', flexDirection: 'column', paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
     <div style={{ position: 'relative', flex: 1, minHeight: 0, background: '#101014', overflow: 'hidden' }}>
       {url && (isVideo ? <video src={url} playsInline controls style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> : <img src={url} alt="Photo à modifier" style={{ width: '100%', height: '100%', objectFit: 'contain', filter: cssFilter }} />)}
-      {!!caption.trim() && !isVideo && <div style={{ position: 'absolute', top: '50%', left: '8%', right: '8%', transform: 'translateY(-50%)', pointerEvents: 'none', color: textColor, fontWeight: 800, fontSize: `${textSize}px`, textAlign: 'center', overflowWrap: 'anywhere', textShadow: '0 2px 5px #000, 0 0 12px #000' }}>{caption}</div>}
+      {!!caption.trim() && !isVideo && <div style={{ position: 'absolute', top: '50%', left: '8%', right: '8%', transform: 'translateY(-50%)', pointerEvents: 'none', color: textColor, fontWeight: 800, fontSize: `${textSize}px`, textAlign: 'center', overflowWrap: 'anywhere', textShadow: '0 2px 5px #000, 0 0 12px #000', pointerEvents: 'auto', touchAction: 'none' }} onTouchStart={e => { if (e.touches.length === 2) { const a=e.touches[0], b=e.touches[1]; textPinchDistance.current=Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY); textPinchStartSize.current=textSize } }} onTouchMove={e => { if (e.touches.length === 2 && textPinchDistance.current) { const a=e.touches[0], b=e.touches[1]; const distance=Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY); setTextSize(Math.max(16,Math.min(160,Math.round(textPinchStartSize.current*distance/textPinchDistance.current)))) } }} onTouchEnd={e => { if (e.touches.length < 2) textPinchDistance.current=null }}>{caption}</div>}
       {!!comment.trim() && !isVideo && <div style={{ position: 'absolute', bottom: 90, left: '7%', right: '7%', pointerEvents: 'none', fontSize: 19, fontWeight: 600, textShadow: '0 1px 5px #000, 0 0 8px #000', overflowWrap: 'anywhere' }}>{comment}</div>}
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(#000a,transparent)' }}>
         <button type="button" onClick={onCancel} aria-label="Reprendre une photo" style={{ color: '#fff', background: '#0007', border: 0, borderRadius: 24, width: 42, height: 42, fontSize: 27 }}>×</button>
@@ -604,7 +606,7 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
         <button type="button" onClick={() => setActiveTool(t => t === 'light' ? null : 'light')} aria-label="Luminosité" style={{ border: 0, background: '#000a', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 22 }}>☀</button>
       </div>}
       {activeTool && !isVideo && <div style={{ position: 'absolute', top: 240, left: 16, right: 70, background: '#17171eea', border: '1px solid #ffffff30', borderRadius: 16, padding: 12, display: 'grid', gap: 12 }}>
-        {activeTool === 'text' && <><input value={caption} onChange={e => setCaption(e.target.value)} maxLength={120} placeholder="Texte sur l'image…" aria-label="Texte sur l'image" autoFocus style={{ width: '100%', background: '#292933', color: '#fff', border: '1px solid #555', borderRadius: 9, padding: 10, fontSize: 16 }} /><div style={{ display: 'flex', gap: 10, alignItems: 'center' }}><input type="color" value={textColor} onChange={e => setTextColor(e.target.value)} aria-label="Couleur du texte" /><input type="range" min="24" max="76" value={textSize} onChange={e => setTextSize(Number(e.target.value))} aria-label="Taille du texte" style={{ flex: 1 }} /></div></>}
+        {activeTool === 'text' && <><input value={caption} onChange={e => setCaption(e.target.value)} maxLength={120} placeholder="Texte sur l'image…" aria-label="Texte sur l'image" autoFocus style={{ width: '100%', background: '#292933', color: '#fff', border: '1px solid #555', borderRadius: 9, padding: 10, fontSize: 16 }} /><div style={{ display: 'flex', gap: 10, alignItems: 'center' }}><input type="color" value={textColor} onChange={e => setTextColor(e.target.value)} aria-label="Couleur du texte" /><input type="range" min="16" max="160" value={textSize} onChange={e => setTextSize(Number(e.target.value))} aria-label="Taille du texte" style={{ flex: 1 }} /></div></>}
         {activeTool === 'filter' && <div style={{ display: 'flex', gap: 5 }}>{(['normal','contrast','warm','mono'] as const).map(f => <button key={f} type="button" onClick={() => setFilter(f)} style={{ border: filter === f ? '2px solid #ff8a4b' : '1px solid #555', background: '#252530', color: '#fff', borderRadius: 9, padding: '9px 5px', flex: 1, fontSize: 11 }}>{f === 'normal' ? 'Normal' : f === 'contrast' ? 'Éclat' : f === 'warm' ? 'Chaud' : 'N&B'}</button>)}</div>}
         {activeTool === 'light' && <label style={{ display: 'grid', gap: 8, fontSize: 13 }}>Luminosité {brightness}%<input type="range" min="50" max="160" value={brightness} onChange={e => setBrightness(Number(e.target.value))} /></label>}
         <button type="button" onClick={() => setActiveTool(null)} style={{ justifySelf: 'end', border: 0, background: '#ffffff22', color: '#fff', padding: '7px 13px', borderRadius: 9 }}>Terminé</button>
@@ -886,6 +888,8 @@ function App() {
   const [creationType, setCreationType] = useState<CreationType | null>(null)
   const [stories, setStories] = useState<StoryView[]>([])
   const [storyFile, setStoryFile] = useState<File | null>(null)
+  const [archiveMonth, setArchiveMonth] = useState(() => new Date().toISOString().slice(0,7))
+  const [archiveSelectedDay, setArchiveSelectedDay] = useState<string | null>(null)
   const [storyPreview, setStoryPreview] = useState<string | null>(null)
   const [storyBusy, setStoryBusy] = useState(false)
   const [storyError, setStoryError] = useState('')
@@ -3418,9 +3422,26 @@ function App() {
             <div style={cardStyle}>
               <h3>Mes stories archivées</h3>
               {storyError && <p role="alert" style={{ color: '#ff7777' }}>{storyError}</p>}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                <button type="button" aria-label="Mois précédent" onClick={() => { const [y,m]=archiveMonth.split('-').map(Number); setArchiveMonth(`${new Date(y,m-2,1).getFullYear()}-${String(new Date(y,m-2,1).getMonth()+1).padStart(2,'0')}`); setArchiveSelectedDay(null) }}>‹</button>
+                <strong>{new Date(Number(archiveMonth.slice(0,4)), Number(archiveMonth.slice(5,7))-1, 1).toLocaleDateString('fr-CH',{month:'long',year:'numeric'})}</strong>
+                <button type="button" aria-label="Mois suivant" onClick={() => { const [y,m]=archiveMonth.split('-').map(Number); setArchiveMonth(`${new Date(y,m,1).getFullYear()}-${String(new Date(y,m,1).getMonth()+1).padStart(2,'0')}`); setArchiveSelectedDay(null) }}>›</button>
+              </div>
+              <div style={{ display:'grid',gridTemplateColumns:'repeat(7,minmax(0,1fr))',gap:4,textAlign:'center',marginBottom:18 }}>
+                {['L','M','M','J','V','S','D'].map((day,i)=><span key={i} style={{color:'#999',fontSize:12}}>{day}</span>)}
+                {Array.from({length:(new Date(Number(archiveMonth.slice(0,4)),Number(archiveMonth.slice(5,7))-1,1).getDay()+6)%7},(_,i)=><span key={'empty'+i}/>)}
+                {Array.from({length:new Date(Number(archiveMonth.slice(0,4)),Number(archiveMonth.slice(5,7)),0).getDate()},(_,i)=>{
+                  const date=archiveMonth+'-'+String(i+1).padStart(2,'0')
+                  const hasArchive=storyArchive.some(item=>{const d=new Date(item.created_at);return d.getFullYear()===Number(archiveMonth.slice(0,4))&&d.getMonth()+1===Number(archiveMonth.slice(5,7))&&d.getDate()===i+1})
+                  return <button key={date} type="button" onClick={()=>setArchiveSelectedDay(prev=>prev===date?null:date)} style={{background:archiveSelectedDay===date?'#ff6558':'transparent',color:'#fff',border:0,borderRadius:10,padding:'8px 0 3px',display:'grid',justifyItems:'center',gap:3}}>
+                    <span>{i+1}</span><span style={{width:5,height:5,borderRadius:'50%',background:hasArchive?'#ff404e':'transparent'}}/>
+                  </button>
+                })}
+              </div>
+              {archiveSelectedDay && <p style={{fontSize:13,color:'#aaa'}}>Stories du {new Date(archiveSelectedDay+'T12:00:00').toLocaleDateString('fr-CH',{day:'numeric',month:'long',year:'numeric'})}</p>}
               {storyArchive.length === 0 && <p>Aucune story archivée pour le moment.</p>}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
-                {storyArchive.map(item => <div key={item.id}>
+                {storyArchive.filter(item => !archiveSelectedDay || (()=>{const d=new Date(item.created_at);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`===archiveSelectedDay})()).map(item => <div key={item.id}>
                   <button type="button" onClick={() => openStoryViewer([item])} style={{ border: 0, padding: 0, width: '100%', background: '#24252e', color: '#fff' }}>
                     {item.media_type === 'video' ? <video src={item.url} muted playsInline style={{ width: '100%', aspectRatio: '3/4', objectFit: 'cover' }} /> : <img src={item.url} alt="Story archivée" style={{ width: '100%', aspectRatio: '3/4', objectFit: 'cover' }} />}
                   </button>
