@@ -649,14 +649,20 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
         ctx.font = `bold ${fontSize}px -apple-system, Arial, sans-serif`
         ctx.lineWidth = Math.max(3, fontSize / 12)
         ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.fillStyle = textColor
-        const words = caption.trim().split(/\s+/)
-        const lines: string[] = []; let line = ''
-        for (const word of words) {
-          const candidate = line ? `${line} ${word}` : word
-          if (ctx.measureText(candidate).width > canvas.width * .82 && line) { lines.push(line); line = word }
-          else line = candidate
+        const lines: string[] = []
+        // Respecter les retours à la ligne saisis et envelopper les lignes trop longues.
+        for (const paragraph of caption.split(/\r?\n/)) {
+          if (!paragraph.trim()) { lines.push(''); continue }
+          let line = ''
+          for (const word of paragraph.trim().split(/\s+/)) {
+            const candidate = line ? `${line} ${word}` : word
+            if (ctx.measureText(candidate).width > canvas.width * .82 && line) {
+              lines.push(line)
+              line = word
+            } else line = candidate
+          }
+          lines.push(line)
         }
-        if (line) lines.push(line)
         const startY = canvas.height / 2 + textOffset.y * canvas.height / Math.max(photoFrameSize.height, 1) - (lines.length - 1) * fontSize * .62
         lines.forEach((text, i) => {
           const y = startY + i * fontSize * 1.24
@@ -1083,15 +1089,15 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
         </div>
         {toolsExpanded && <>
           <button type="button" onClick={() => setActiveTool(t => t === 'location' ? null : 'location')} aria-label="Ajouter un lieu sur la photo" style={{ border: 0, background: '#000a', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 22 }}>📍</button>
-          <button type="button" onClick={() => { setTimeLabel(new Date().toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' })); setActiveTool('time') }} aria-label="Ajouter l’heure sur la photo" style={{ border: 0, background: '#000a', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 22 }}>◷</button>
+          <button type="button" onClick={() => { setTimeLabel(new Date().toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit', hour12: false })); setActiveTool(null) }} aria-label="Ajouter l’heure sur la photo" style={{ border: 0, background: '#000a', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 22 }}>◷</button>
           <button type="button" onClick={() => setActiveTool(t => t === 'filter' ? null : 'filter')} aria-label="Filtres" style={{ border: 0, background: '#000a', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 22 }}>◐</button>
           <button type="button" onClick={() => setActiveTool(t => t === 'light' ? null : 'light')} aria-label="Luminosité" style={{ border: 0, background: '#000a', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 22 }}>☀</button>
         </>}
       </div>}
       {activeTool && !isVideo && <div style={{ position: 'absolute', top: 240, left: 16, right: 70, background: '#17171eea', border: '1px solid #ffffff30', borderRadius: 16, padding: 12, display: 'grid', gap: 12 }}>
-        {activeTool === 'text' && <><input value={caption} onChange={e => setCaption(e.target.value)} maxLength={120} placeholder="Texte sur l'image…" aria-label="Texte sur l'image" autoFocus style={{ width: '100%', background: '#292933', color: '#fff', border: '1px solid #555', borderRadius: 9, padding: 10, fontSize: 16 }} /><div style={{ display: 'flex', gap: 10, alignItems: 'center' }}><input type="color" value={textColor} onChange={e => setTextColor(e.target.value)} aria-label="Couleur du texte" /><button type="button" aria-label="Réduire le texte" onClick={() => setTextSize(v => Math.max(12, v - 6))} style={{ background: '#343440', border: 0, borderRadius: 8, color: '#fff', padding: '7px 12px', fontSize: 20 }}>−</button><button type="button" aria-label="Agrandir le texte" onClick={() => setTextSize(v => Math.min(180, v + 6))} style={{ background: '#343440', border: 0, borderRadius: 8, color: '#fff', padding: '7px 12px', fontSize: 20 }}>+</button><span style={{ fontSize: 12, color: '#aaa' }}>Ou pince avec deux doigts</span></div></>}
+        {activeTool === 'text' && <><textarea value={caption} onChange={e => setCaption(e.target.value)} maxLength={500} rows={3} placeholder="Texte sur l'image…" aria-label="Texte sur l'image" autoFocus style={{ width: '100%', resize: 'vertical', background: '#292933', color: '#fff', border: '1px solid #555', borderRadius: 9, padding: 10, fontSize: 16, lineHeight: 1.35 }} /><div style={{ display: 'flex', gap: 10, alignItems: 'center' }}><input type="color" value={textColor} onChange={e => setTextColor(e.target.value)} aria-label="Couleur du texte" /><button type="button" aria-label="Réduire le texte" onClick={() => setTextSize(v => Math.max(12, v - 6))} style={{ background: '#343440', border: 0, borderRadius: 8, color: '#fff', padding: '7px 12px', fontSize: 20 }}>−</button><button type="button" aria-label="Agrandir le texte" onClick={() => setTextSize(v => Math.min(180, v + 6))} style={{ background: '#343440', border: 0, borderRadius: 8, color: '#fff', padding: '7px 12px', fontSize: 20 }}>+</button><span style={{ fontSize: 12, color: '#aaa' }}>Ou pince avec deux doigts</span></div></>}
         {activeTool === 'location' && <div style={{ display: 'grid', gap: 9 }}><strong style={{ fontSize: 14 }}>Ajouter un lieu</strong><input value={locationLabel} onChange={e => setLocationLabel(e.target.value)} maxLength={70} placeholder="Ville ou lieu…" aria-label="Nom du lieu" style={{ width: '100%', background: '#292933', color: '#fff', border: '1px solid #555', borderRadius: 9, padding: 10, fontSize: 16 }} /><button type="button" disabled={findingLocation} onClick={() => void useMyLocation()} style={{ background: '#343440', color: '#fff', border: 0, borderRadius: 9, padding: 10 }}>{findingLocation ? 'Recherche du lieu…' : '⌖ Utiliser ma position'}</button><span style={{ fontSize: 12, color: '#aaa' }}>Pince le lieu avec deux doigts pour agrandir ou réduire sa taille.</span><span style={{ fontSize: 11, color: '#bbb' }}>Déplace le lieu comme le texte ou glisse-le dans la poubelle.</span></div>}
-        {activeTool === 'time' && <div style={{ display: 'grid', gap: 9 }}><strong style={{ fontSize: 14 }}>Heure sur la photo</strong><input type="time" value={timeLabel} onChange={e => setTimeLabel(e.target.value)} aria-label="Heure à afficher" style={{ width: '100%', background: '#292933', color: '#fff', border: '1px solid #555', borderRadius: 9, padding: 10, fontSize: 16 }} /><span style={{ fontSize: 12, color: '#aaa' }}>Déplace l’heure avec un doigt, pince avec deux doigts pour changer sa taille, ou glisse-la vers la poubelle.</span></div>}
+        {activeTool === 'time' && <div style={{ display: 'grid', gap: 9 }}><strong style={{ fontSize: 14 }}>Heure sur la photo</strong><span style={{ fontSize: 22, fontWeight: 800 }}>{timeLabel}</span><span style={{ fontSize: 12, color: '#aaa' }}>Heure actuelle de l’appareil, non modifiable.</span><span style={{ fontSize: 12, color: '#aaa' }}>Déplace l’heure avec un doigt, pince avec deux doigts pour changer sa taille, ou glisse-la vers la poubelle.</span></div>}
         {activeTool === 'filter' && <div style={{ display: 'flex', gap: 5 }}>{(['normal','contrast','warm','mono'] as const).map(f => <button key={f} type="button" onClick={() => setFilter(f)} style={{ border: filter === f ? '2px solid #ff8a4b' : '1px solid #555', background: '#252530', color: '#fff', borderRadius: 9, padding: '9px 5px', flex: 1, fontSize: 11 }}>{f === 'normal' ? 'Normal' : f === 'contrast' ? 'Éclat' : f === 'warm' ? 'Chaud' : 'N&B'}</button>)}</div>}
         {activeTool === 'light' && <label style={{ display: 'grid', gap: 8, fontSize: 13 }}>Luminosité {brightness}%<input type="range" min="50" max="160" value={brightness} onChange={e => setBrightness(Number(e.target.value))} /></label>}
         <button type="button" onClick={() => setActiveTool(null)} style={{ justifySelf: 'end', border: 0, background: '#ffffff22', color: '#fff', padding: '7px 13px', borderRadius: 9 }}>Terminé</button>
