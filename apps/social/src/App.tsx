@@ -516,23 +516,39 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
   const [filter, setFilter] = useState<'normal' | 'contrast' | 'warm' | 'mono'>('normal')
   const [caption, setCaption] = useState('')
   const [comment, setComment] = useState('')
+  const [timeLabel, setTimeLabel] = useState('')
+  const [timeOffset, setTimeOffset] = useState({ x: 0, y: 95 })
+  const [timeSize, setTimeSize] = useState(30)
+  const timeSizeRef = useRef(30)
+  timeSizeRef.current = timeSize
+  const timePointers = useRef(new Map<number, { x: number; y: number }>())
+  const timePinch = useRef<{ distance: number; size: number } | null>(null)
+  const timeDrag = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null)
+  const [toolsExpanded, setToolsExpanded] = useState(false)
   const [locationLabel, setLocationLabel] = useState('')
   const [locationOffset, setLocationOffset] = useState({ x: 0, y: 0 })
+  const [locationSize, setLocationSize] = useState(18)
+  const locationSizeRef = useRef(18)
+  locationSizeRef.current = locationSize
+  const locationPointers = useRef(new Map<number, { x: number; y: number }>())
+  const locationPinch = useRef<{ distance: number; size: number } | null>(null)
   const [findingLocation, setFindingLocation] = useState(false)
-  const [draggingSticker, setDraggingSticker] = useState<'text' | 'location' | null>(null)
+  const [draggingSticker, setDraggingSticker] = useState<'text' | 'location' | 'time' | null>(null)
   const [overTrash, setOverTrash] = useState(false)
   const locationDrag = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null)
   const locationPointer = useRef<number | null>(null)
+  const timePointer = useRef<number | null>(null)
   const stickerMoved = useRef(false)
   const isTrashPoint = (x: number, y: number) => {
     const frame = photoFrame.current?.getBoundingClientRect()
     if (!frame) return false
     return y >= frame.bottom - 150 && y <= frame.bottom - 30 && Math.abs(x - (frame.left + frame.width / 2)) <= 85
   }
-  function clearStickerDrag(kind: 'text' | 'location', x: number, y: number) {
+  function clearStickerDrag(kind: 'text' | 'location' | 'time', x: number, y: number) {
     if (isTrashPoint(x, y) && stickerMoved.current) {
       if (kind === 'text') { setCaption(''); setTextOffset({ x: 0, y: 0 }); setActiveTool(null) }
-      else { setLocationLabel(''); setLocationOffset({ x: 0, y: 0 }); setActiveTool(null) }
+      else if (kind === 'location') { setLocationLabel(''); setLocationOffset({ x: 0, y: 0 }); setActiveTool(null) }
+      else { setTimeLabel(''); setTimeOffset({ x: 0, y: 95 }); setActiveTool(null) }
     }
     setDraggingSticker(null); setOverTrash(false); stickerMoved.current = false
   }
@@ -551,7 +567,7 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
     } catch (err) { setError(err instanceof Error ? err.message : 'Localisation impossible. Saisis le lieu manuellement.') }
     finally { setFindingLocation(false) }
   }
-  const [activeTool, setActiveTool] = useState<'text' | 'filter' | 'light' | 'location' | null>(null)
+  const [activeTool, setActiveTool] = useState<'text' | 'filter' | 'light' | 'location' | 'time' | null>(null)
   const [textColor, setTextColor] = useState('#ffffff')
   const [textSize, setTextSize] = useState(48)
   const [textOffset, setTextOffset] = useState({ x: 0, y: 0 })
@@ -559,7 +575,7 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
   const [photoZoom, setPhotoZoom] = useState(1)
   const [photoOffset, setPhotoOffset] = useState({ x: 0, y: 0 })
   // Un geste appartient soit au texte, soit à la photo, jamais aux deux.
-  const gestureOwner = useRef<'text' | 'photo' | null>(null)
+  const gestureOwner = useRef<'text' | 'photo' | 'location' | 'time' | null>(null)
   const photoPointers = useRef(new Map<number, { x: number; y: number }>())
   const photoGesture = useRef<{ distance: number; zoom: number; x: number; y: number; ox: number; oy: number } | null>(null)
   const photoFrame = useRef<HTMLDivElement | null>(null)
@@ -649,7 +665,7 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
         })
       }
       if (locationLabel.trim()) {
-        const fontSize = Math.round(20 * canvas.width / Math.max(photoFrameSize.width, 1))
+        const fontSize = Math.round(locationSize * canvas.width / Math.max(photoFrameSize.width, 1))
         ctx.font = `bold ${fontSize}px Arial, sans-serif`
         const label = `⌖ ${locationLabel.trim()}`
         const labelWidth = Math.min(canvas.width * .9, ctx.measureText(label).width + fontSize * 1.6)
@@ -661,6 +677,18 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
         ctx.beginPath(); ctx.roundRect(left, top, labelWidth, fontSize * 2.3, radius); ctx.fill()
         ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
         ctx.fillText(label, labelX, labelY, labelWidth - fontSize * .5)
+      }
+      if (timeLabel.trim()) {
+        const fontSize = Math.round(timeSize * canvas.width / Math.max(photoFrameSize.width, 1))
+        ctx.font = `bold ${fontSize}px Arial, sans-serif`
+        const label = timeLabel.trim()
+        const labelWidth = Math.min(canvas.width * .9, ctx.measureText(label).width + fontSize * 1.3)
+        const x = canvas.width / 2 + timeOffset.x * outputScale
+        const y = canvas.height / 2 + timeOffset.y * outputScale
+        ctx.fillStyle = 'rgba(0,0,0,.55)'
+        ctx.beginPath(); ctx.roundRect(x - labelWidth / 2, y - fontSize * 1.05, labelWidth, fontSize * 2.1, fontSize * .5); ctx.fill()
+        ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+        ctx.fillText(label, x, y, labelWidth - fontSize * .4)
       }
       if (comment.trim()) {
         const fontSize = Math.max(24, Math.round(canvas.width * 26 / 390))
@@ -827,14 +855,141 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
           textPinchDistance.current = null
           if (activePointers.current.size === 0) gestureOwner.current = null
         }}
-        style={{ position:'absolute', top:'50%', left:'50%', width:'max-content', maxWidth:'84%', transform:`translate(calc(-50% + ${textOffset.x}px), calc(-50% + ${textOffset.y}px))`, color:textColor, fontWeight:800, fontSize:`${textSize}px`, textAlign:'center', overflowWrap:'anywhere', whiteSpace:'pre-wrap', textShadow:'0 2px 5px #000, 0 0 12px #000', touchAction:'none', userSelect:'none', cursor:'grab', lineHeight:1.15 }}
-      >{caption}</div>}
-      {!!locationLabel.trim() && !isVideo && <div role="button" tabIndex={0} aria-label="Déplacer le lieu sur la photo" data-matchfit-location-layer="true"
-        onPointerDown={e => { e.stopPropagation(); if (gestureOwner.current) return; gestureOwner.current = 'text'; locationPointer.current = e.pointerId; locationDrag.current = { x: e.clientX, y: e.clientY, ox: locationOffset.x, oy: locationOffset.y }; stickerMoved.current = false; setDraggingSticker('location'); setOverTrash(false); e.currentTarget.setPointerCapture(e.pointerId) }}
-        onPointerMove={e => { e.stopPropagation(); if (locationPointer.current !== e.pointerId || !locationDrag.current) return; const g = locationDrag.current; if (Math.hypot(e.clientX - g.x, e.clientY - g.y) > 8) stickerMoved.current = true; setOverTrash(isTrashPoint(e.clientX, e.clientY)); setLocationOffset({ x: g.ox + e.clientX - g.x, y: g.oy + e.clientY - g.y }) }}
-        onPointerUp={e => { e.stopPropagation(); if (locationPointer.current !== e.pointerId) return; clearStickerDrag('location', e.clientX, e.clientY); locationPointer.current = null; locationDrag.current = null; gestureOwner.current = null }}
-        onPointerCancel={e => { e.stopPropagation(); locationPointer.current = null; locationDrag.current = null; gestureOwner.current = null; setDraggingSticker(null); setOverTrash(false) }}
-        style={{ position: 'absolute', left: '50%', top: '50%', transform: `translate(calc(-50% + ${locationOffset.x}px), calc(-50% + ${locationOffset.y}px))`, background: '#0009', border: '1px solid #ffffff55', borderRadius: 18, color: '#fff', padding: '9px 14px', fontSize: 18, fontWeight: 700, whiteSpace: 'nowrap', maxWidth: '85%', overflow: 'hidden', textOverflow: 'ellipsis', touchAction: 'none', userSelect: 'none', zIndex: 2 }}>⌖ {locationLabel}</div>}
+        style={{ position:'absolute', top:'50%', left:'50%', width:'max-content', maxWidth:'84%', transform:`translate(calc(-50% + ${textOffset.x}px), calc(-50% + ${textOffset.y}px))`, color:textColor, fontWeight:800, fontSize:`${textSize}px`, textAlign:'center', overflowWrap:'anywhere', whiteSpace:'pre-wrap', textShadow:'0 2px 5px #000, 0 0 12px #000', touchAction:'none', userSelect:'none', cursor:'      {!!locationLabel.trim() && !isVideo && <div role="button" tabIndex={0} aria-label="Déplacer ou agrandir le lieu sur la photo" data-matchfit-location-layer="true"
+        onClick={() => { if (!stickerMoved.current) setActiveTool('location') }}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') setActiveTool('location') }}
+        onPointerDown={e => {
+          e.stopPropagation()
+          if (gestureOwner.current && gestureOwner.current !== 'location') return
+          gestureOwner.current = 'location'
+          e.currentTarget.setPointerCapture(e.pointerId)
+          locationPointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+          if (locationPointers.current.size === 1) {
+            locationPointer.current = e.pointerId
+            locationDrag.current = { x: e.clientX, y: e.clientY, ox: locationOffset.x, oy: locationOffset.y }
+            locationPinch.current = null
+            stickerMoved.current = false
+            setDraggingSticker('location'); setOverTrash(false)
+          } else if (locationPointers.current.size === 2) {
+            const points = [...locationPointers.current.values()]
+            locationPinch.current = { distance: Math.max(1, Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y)), size: locationSizeRef.current }
+            locationDrag.current = null
+            setDraggingSticker(null); setOverTrash(false)
+          }
+        }}
+        onPointerMove={e => {
+          e.stopPropagation()
+          if (gestureOwner.current !== 'location' || !locationPointers.current.has(e.pointerId)) return
+          locationPointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+          if (locationPointers.current.size >= 2 && locationPinch.current) {
+            const points = [...locationPointers.current.values()]
+            const distance = Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y)
+            setLocationSize(Math.max(10, Math.min(90, Math.round(locationPinch.current.size * distance / locationPinch.current.distance))))
+            stickerMoved.current = true
+          } else if (locationPointers.current.size === 1 && locationDrag.current && locationPointer.current === e.pointerId) {
+            const g = locationDrag.current
+            if (Math.hypot(e.clientX - g.x, e.clientY - g.y) > 8) stickerMoved.current = true
+            setOverTrash(isTrashPoint(e.clientX, e.clientY))
+            setLocationOffset({ x: g.ox + e.clientX - g.x, y: g.oy + e.clientY - g.y })
+          }
+        }}
+        onPointerUp={e => {
+          e.stopPropagation()
+          if (!locationPointers.current.has(e.pointerId)) return
+          const wasDragging = locationPointers.current.size === 1 && locationDrag.current !== null
+          locationPointers.current.delete(e.pointerId)
+          if (locationPointers.current.size === 0) {
+            if (wasDragging) clearStickerDrag('location', e.clientX, e.clientY)
+            else { setDraggingSticker(null); setOverTrash(false) }
+            gestureOwner.current = null
+            locationPointer.current = null
+            locationDrag.current = null
+            locationPinch.current = null
+          } else if (locationPointers.current.size === 1) {
+            const [id, point] = [...locationPointers.current.entries()][0]
+            locationPointer.current = id
+            locationDrag.current = { x: point.x, y: point.y, ox: locationOffset.x, oy: locationOffset.y }
+            locationPinch.current = null
+            setDraggingSticker('location')
+          }
+        }}
+        onPointerCancel={e => {
+          e.stopPropagation()
+          locationPointers.current.delete(e.pointerId)
+          if (locationPointers.current.size === 0) {
+            locationPointer.current = null; locationDrag.current = null; locationPinch.current = null
+            gestureOwner.current = null; setDraggingSticker(null); setOverTrash(false)
+          }
+        }}
+        style={{ position: 'absolute', left: '50%', top: '50%', transform: `translate(calc(-50% + ${locationOffset.x}px), calc(-50% + ${locationOffset.y}px))`, background: '#0009', border: '1px solid #ffffff55', borderRadius: 18, color: '#fff', padding: '9px 14px', fontSize: locationSize, fontWeight: 700, whiteSpace: 'nowrap', maxWidth: '85%', overflow: 'hidden', textOverflow: 'ellipsis', touchAction: 'none', userSelect: 'none', zIndex: 2 }}>⌖ {locationLabel}</div>}
+      {!!timeLabel.trim() && !isVideo && <div role="button" tabIndex={0} aria-label="Déplacer ou agrandir l’heure sur la photo" data-matchfit-time-layer="true"
+        onClick={() => { if (!stickerMoved.current) setActiveTool('time') }}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') setActiveTool('time') }}
+        onPointerDown={e => {
+          e.stopPropagation()
+          if (gestureOwner.current && gestureOwner.current !== 'time') return
+          gestureOwner.current = 'time'
+          e.currentTarget.setPointerCapture(e.pointerId)
+          timePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+          if (timePointers.current.size === 1) {
+            timePointer.current = e.pointerId
+            timeDrag.current = { x: e.clientX, y: e.clientY, ox: timeOffset.x, oy: timeOffset.y }
+            timePinch.current = null
+            stickerMoved.current = false
+            setDraggingSticker('time'); setOverTrash(false)
+          } else if (timePointers.current.size === 2) {
+            const points = [...timePointers.current.values()]
+            timePinch.current = { distance: Math.max(1, Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y)), size: timeSizeRef.current }
+            timeDrag.current = null
+            setDraggingSticker(null); setOverTrash(false)
+          }
+        }}
+        onPointerMove={e => {
+          e.stopPropagation()
+          if (gestureOwner.current !== 'time' || !timePointers.current.has(e.pointerId)) return
+          timePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+          if (timePointers.current.size >= 2 && timePinch.current) {
+            const points = [...timePointers.current.values()]
+            const distance = Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y)
+            setTimeSize(Math.max(10, Math.min(90, Math.round(timePinch.current.size * distance / timePinch.current.distance))))
+            stickerMoved.current = true
+          } else if (timePointers.current.size === 1 && timeDrag.current && timePointer.current === e.pointerId) {
+            const g = timeDrag.current
+            if (Math.hypot(e.clientX - g.x, e.clientY - g.y) > 8) stickerMoved.current = true
+            setOverTrash(isTrashPoint(e.clientX, e.clientY))
+            setTimeOffset({ x: g.ox + e.clientX - g.x, y: g.oy + e.clientY - g.y })
+          }
+        }}
+        onPointerUp={e => {
+          e.stopPropagation()
+          if (!timePointers.current.has(e.pointerId)) return
+          const wasDragging = timePointers.current.size === 1 && timeDrag.current !== null
+          timePointers.current.delete(e.pointerId)
+          if (timePointers.current.size === 0) {
+            if (wasDragging) clearStickerDrag('time', e.clientX, e.clientY)
+            else { setDraggingSticker(null); setOverTrash(false) }
+            gestureOwner.current = null
+            timePointer.current = null
+            timeDrag.current = null
+            timePinch.current = null
+          } else if (timePointers.current.size === 1) {
+            const [id, point] = [...timePointers.current.entries()][0]
+            timePointer.current = id
+            timeDrag.current = { x: point.x, y: point.y, ox: timeOffset.x, oy: timeOffset.y }
+            timePinch.current = null
+            setDraggingSticker('time')
+          }
+        }}
+        onPointerCancel={e => {
+          e.stopPropagation()
+          timePointers.current.delete(e.pointerId)
+          if (timePointers.current.size === 0) {
+            timePointer.current = null; timeDrag.current = null; timePinch.current = null
+            gestureOwner.current = null; setDraggingSticker(null); setOverTrash(false)
+          }
+        }}
+        style={{ position: 'absolute', left: '50%', top: '50%', transform: `translate(calc(-50% + ${timeOffset.x}px), calc(-50% + ${timeOffset.y}px))`, background: '#0009', border: '1px solid #ffffff55', borderRadius: 18, color: '#fff', padding: '9px 14px', fontSize: timeSize, fontWeight: 700, whiteSpace: 'nowrap', maxWidth: '85%', overflow: 'hidden', textOverflow: 'ellipsis', touchAction: 'none', userSelect: 'none', zIndex: 2 }}>{timeLabel}</div>}
+ct: 'none', zIndex: 2 }}>⌖ {locationLabel}</div>}
       {draggingSticker && !isVideo && <div aria-label="Glisser ici pour supprimer" style={{ position: 'absolute', left: '50%', bottom: 58, transform: 'translateX(-50%)', width: 72, height: 72, display: 'grid', placeItems: 'center', borderRadius: 24, background: overTrash ? '#ff555544' : '#ffffff18', border: overTrash ? '2px solid #ff7474' : '1px solid #ffffff55', backdropFilter: 'blur(5px)', pointerEvents: 'none', zIndex: 6, fontSize: 30, color: '#fff' }}>🗑</div>}
       {!!comment.trim() && !isVideo && <div style={{ position: 'absolute', bottom: 90, left: '7%', right: '7%', pointerEvents: 'none', fontSize: 19, fontWeight: 600, textShadow: '0 1px 5px #000, 0 0 8px #000', overflowWrap: 'anywhere' }}>{comment}</div>}
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(#000a,transparent)' }}>
@@ -842,15 +997,23 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
         <strong>MATCH<span style={{ color: '#ff8a4b' }}>FIT</span></strong>
         <button type="button" disabled={saving} onClick={() => void finish()} style={{ color: '#fff', background: '#ff704e', border: 0, borderRadius: 24, padding: '11px 16px', fontWeight: 800 }}>{saving ? 'Export…' : 'Suivant →'}</button>
       </div>
-      {!isVideo && <div style={{ position: 'absolute', right: 12, top: 86, display: 'grid', gap: 13 }}>
+      {!isVideo && <div style={{ position: 'absolute', right: 12, top: 86, display: 'grid', gap: 13, zIndex: 5 }}>
         <button type="button" onClick={() => setActiveTool(t => t === 'text' ? null : 'text')} aria-label="Ajouter du texte sur la photo" style={{ border: 0, background: '#000a', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 22, fontWeight: 800 }}>Aa</button>
-        <button type="button" onClick={() => setActiveTool(t => t === 'location' ? null : 'location')} aria-label="Ajouter un lieu sur la photo" style={{ border: 0, background: '#000a', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 23 }}>⌖</button>
-        <button type="button" onClick={() => setActiveTool(t => t === 'filter' ? null : 'filter')} aria-label="Filtres" style={{ border: 0, background: '#000a', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 22 }}>◐</button>
-        <button type="button" onClick={() => setActiveTool(t => t === 'light' ? null : 'light')} aria-label="Luminosité" style={{ border: 0, background: '#000a', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 22 }}>☀</button>
+        <div style={{ width: 48, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+          <button type="button" onClick={() => { setToolsExpanded(v => !v); setActiveTool(null) }} aria-label="Afficher les autres outils" aria-expanded={toolsExpanded} style={{ border: 0, background: '#000a', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 25, fontWeight: 800 }}>•••</button>
+          <span style={{ color: '#fff', fontSize: 11, fontWeight: 600, textShadow: '0 1px 4px #000', pointerEvents: 'none' }}>Outils</span>
+        </div>
+        {toolsExpanded && <>
+          <button type="button" onClick={() => setActiveTool(t => t === 'location' ? null : 'location')} aria-label="Ajouter un lieu sur la photo" style={{ border: 0, background: '#000a', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 22 }}>📍</button>
+          <button type="button" onClick={() => { setTimeLabel(new Date().toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' })); setActiveTool('time') }} aria-label="Ajouter l’heure sur la photo" style={{ border: 0, background: '#000a', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 22 }}>◷</button>
+          <button type="button" onClick={() => setActiveTool(t => t === 'filter' ? null : 'filter')} aria-label="Filtres" style={{ border: 0, background: '#000a', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 22 }}>◐</button>
+          <button type="button" onClick={() => setActiveTool(t => t === 'light' ? null : 'light')} aria-label="Luminosité" style={{ border: 0, background: '#000a', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 22 }}>☀</button>
+        </>}
       </div>}
       {activeTool && !isVideo && <div style={{ position: 'absolute', top: 240, left: 16, right: 70, background: '#17171eea', border: '1px solid #ffffff30', borderRadius: 16, padding: 12, display: 'grid', gap: 12 }}>
         {activeTool === 'text' && <><input value={caption} onChange={e => setCaption(e.target.value)} maxLength={120} placeholder="Texte sur l'image…" aria-label="Texte sur l'image" autoFocus style={{ width: '100%', background: '#292933', color: '#fff', border: '1px solid #555', borderRadius: 9, padding: 10, fontSize: 16 }} /><div style={{ display: 'flex', gap: 10, alignItems: 'center' }}><input type="color" value={textColor} onChange={e => setTextColor(e.target.value)} aria-label="Couleur du texte" /><button type="button" aria-label="Réduire le texte" onClick={() => setTextSize(v => Math.max(12, v - 6))} style={{ background: '#343440', border: 0, borderRadius: 8, color: '#fff', padding: '7px 12px', fontSize: 20 }}>−</button><button type="button" aria-label="Agrandir le texte" onClick={() => setTextSize(v => Math.min(180, v + 6))} style={{ background: '#343440', border: 0, borderRadius: 8, color: '#fff', padding: '7px 12px', fontSize: 20 }}>+</button><span style={{ fontSize: 12, color: '#aaa' }}>Ou pince avec deux doigts</span></div></>}
-        {activeTool === 'location' && <div style={{ display: 'grid', gap: 9 }}><strong style={{ fontSize: 14 }}>Ajouter un lieu</strong><input value={locationLabel} onChange={e => setLocationLabel(e.target.value)} maxLength={70} placeholder="Ville ou lieu…" aria-label="Nom du lieu" style={{ width: '100%', background: '#292933', color: '#fff', border: '1px solid #555', borderRadius: 9, padding: 10, fontSize: 16 }} /><button type="button" disabled={findingLocation} onClick={() => void useMyLocation()} style={{ background: '#343440', color: '#fff', border: 0, borderRadius: 9, padding: 10 }}>{findingLocation ? 'Recherche du lieu…' : '⌖ Utiliser ma position'}</button><span style={{ fontSize: 11, color: '#bbb' }}>Le lieu apparaît sur la photo et peut être déplacé ou glissé dans la poubelle.</span></div>}
+        {activeTool === 'location' && <div style={{ display: 'grid', gap: 9 }}><strong style={{ fontSize: 14 }}>Ajouter un lieu</strong><input value={locationLabel} onChange={e => setLocationLabel(e.target.value)} maxLength={70} placeholder="Ville ou lieu…" aria-label="Nom du lieu" style={{ width: '100%', background: '#292933', color: '#fff', border: '1px solid #555', borderRadius: 9, padding: 10, fontSize: 16 }} /><button type="button" disabled={findingLocation} onClick={() => void useMyLocation()} style={{ background: '#343440', color: '#fff', border: 0, borderRadius: 9, padding: 10 }}>{findingLocation ? 'Recherche du lieu…' : '⌖ Utiliser ma position'}</button><span style={{ fontSize: 12, color: '#aaa' }}>Pince le lieu avec deux doigts pour agrandir ou réduire sa taille.</span><span style={{ fontSize: 11, color: '#bbb' }}>Déplace le lieu comme le texte ou glisse-le dans la poubelle.</span></div>}
+        {activeTool === 'time' && <div style={{ display: 'grid', gap: 9 }}><strong style={{ fontSize: 14 }}>Heure sur la photo</strong><input type="time" value={timeLabel} onChange={e => setTimeLabel(e.target.value)} aria-label="Heure à afficher" style={{ width: '100%', background: '#292933', color: '#fff', border: '1px solid #555', borderRadius: 9, padding: 10, fontSize: 16 }} /><span style={{ fontSize: 12, color: '#aaa' }}>Déplace l’heure avec un doigt, pince avec deux doigts pour changer sa taille, ou glisse-la vers la poubelle.</span></div>}
         {activeTool === 'filter' && <div style={{ display: 'flex', gap: 5 }}>{(['normal','contrast','warm','mono'] as const).map(f => <button key={f} type="button" onClick={() => setFilter(f)} style={{ border: filter === f ? '2px solid #ff8a4b' : '1px solid #555', background: '#252530', color: '#fff', borderRadius: 9, padding: '9px 5px', flex: 1, fontSize: 11 }}>{f === 'normal' ? 'Normal' : f === 'contrast' ? 'Éclat' : f === 'warm' ? 'Chaud' : 'N&B'}</button>)}</div>}
         {activeTool === 'light' && <label style={{ display: 'grid', gap: 8, fontSize: 13 }}>Luminosité {brightness}%<input type="range" min="50" max="160" value={brightness} onChange={e => setBrightness(Number(e.target.value))} /></label>}
         <button type="button" onClick={() => setActiveTool(null)} style={{ justifySelf: 'end', border: 0, background: '#ffffff22', color: '#fff', padding: '7px 13px', borderRadius: 9 }}>Terminé</button>
