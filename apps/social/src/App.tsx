@@ -18,7 +18,7 @@ type MatchFitNativeCameraResult = {
   mode?: "story" | "reel" | "publication"
 }
 type MatchFitNativeCameraAPI = {
-  openCamera(): Promise<MatchFitNativeCameraResult>
+  openCamera(options?: { transition?: "horizontal" }): Promise<MatchFitNativeCameraResult>
 }
 const MatchFitNativeCamera = registerPlugin<MatchFitNativeCameraAPI>('MatchFitNativeCamera')
 
@@ -638,7 +638,8 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
 }
 
 // Ouvre directement la caméra native iOS, sans afficher l'aperçu web intermédiaire.
-function MatchFitDirectNativeCamera({ onCapture, onClose }: {
+function MatchFitDirectNativeCamera({ onCapture, onClose, transition }: {
+  transition?: "horizontal"
   onCapture: (file: File, mode?: CreationType) => void
   onClose: () => void
 }) {
@@ -649,7 +650,7 @@ function MatchFitDirectNativeCamera({ onCapture, onClose }: {
     let active = true
     async function launch() {
       try {
-        const media = await MatchFitNativeCamera.openCamera()
+        const media = await MatchFitNativeCamera.openCamera(transition ? { transition } : {})
         if (!media.path) throw new Error('Photo inaccessible après la capture.')
         const response = await fetch(Capacitor.convertFileSrc(media.path))
         if (!response.ok) throw new Error('Impossible de lire la photo sélectionnée.')
@@ -903,6 +904,7 @@ function App() {
   const [interactionMessage, setInteractionMessage] = useState('')
   const [creationOpen, setCreationOpen] = useState(false)
   const [cameraOpen, setCameraOpen] = useState(false)
+  const [cameraTransition, setCameraTransition] = useState<"horizontal" | undefined>(undefined)
   const [editingFile, setEditingFile] = useState<File | null>(null)
   const homeSwipeStart = useRef<{x:number;y:number}|null>(null)
   const [creationType, setCreationType] = useState<CreationType | null>(null)
@@ -2278,7 +2280,8 @@ function App() {
     setCreationType(type)
     setCreationOpen(true)
   }
-  function openCamera(mode: CreationType = 'story') {
+  function openCamera(mode: CreationType = 'story', transition?: 'horizontal') {
+    setCameraTransition(transition)
     setCreationType(mode)
     setCameraOpen(true)
   }
@@ -2557,7 +2560,7 @@ function App() {
       </header>
 
       {page === 'accueil' && (
-        <section className="home" onTouchStart={event => { homeSwipeStart.current = { x: event.touches[0].clientX, y: event.touches[0].clientY } }} onTouchEnd={event => { const start = homeSwipeStart.current; homeSwipeStart.current = null; if (!start || creationOpen || cameraOpen) return; const dx = event.changedTouches[0].clientX - start.x; const dy = event.changedTouches[0].clientY - start.y; if (dx > 90 && Math.abs(dx) > Math.abs(dy) * 1.5) openCamera('story') }}>
+        <section className="home" onTouchStart={event => { homeSwipeStart.current = { x: event.touches[0].clientX, y: event.touches[0].clientY } }} onTouchEnd={event => { const start = homeSwipeStart.current; homeSwipeStart.current = null; if (!start || creationOpen || cameraOpen) return; const dx = event.changedTouches[0].clientX - start.x; const dy = event.changedTouches[0].clientY - start.y; if (dx > 90 && Math.abs(dx) > Math.abs(dy) * 1.5) openCamera('story', 'horizontal') }}>
           <div className="stories">
             <div className="story" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
               <div style={{ position: 'relative', width: 68, height: 68 }}>
@@ -3684,7 +3687,7 @@ function App() {
 
       {editingFile && <MatchFitMediaEditor file={editingFile} onDone={completeMediaEdit} onCancel={() => { setEditingFile(null); setCameraOpen(true) }} />}
       {cameraOpen && Capacitor.getPlatform() === 'ios'
-        ? <MatchFitDirectNativeCamera onClose={() => setCameraOpen(false)} onCapture={capturedMedia} />
+        ? <MatchFitDirectNativeCamera transition={cameraTransition} onClose={() => setCameraOpen(false)} onCapture={capturedMedia} />
         : cameraOpen && <MatchFitCamera mode={creationType === 'reel' ? 'reel' : creationType === 'publication' ? 'publication' : 'story'} onMode={mode => setCreationType(mode)} onClose={() => setCameraOpen(false)} onCapture={capturedMedia} />}
       {creationOpen && (
         <div className="creation-overlay">
