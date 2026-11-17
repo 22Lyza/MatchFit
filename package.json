@@ -1,4 +1,3 @@
-
 {
   "name": "matchfit",
   "version": "1.0.0",
@@ -13,5 +12,9 @@
     "dev:dating": "npm run dev --workspace=@matchfit/dating",
     "build:social": "npm run build --workspace=@matchfit/social",
     "build:dating": "npm run build --workspace=@matchfit/dating"
+  },
+  "dependencies": {
+    "@capacitor/camera": "^8.2.6",
+    "@capawesome/capacitor-file-picker": "^8.1.1"
   }
 }
