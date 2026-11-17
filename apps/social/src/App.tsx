@@ -855,7 +855,8 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
           textPinchDistance.current = null
           if (activePointers.current.size === 0) gestureOwner.current = null
         }}
-        style={{ position:'absolute', top:'50%', left:'50%', width:'max-content', maxWidth:'84%', transform:`translate(calc(-50% + ${textOffset.x}px), calc(-50% + ${textOffset.y}px))`, color:textColor, fontWeight:800, fontSize:`${textSize}px`, textAlign:'center', overflowWrap:'anywhere', whiteSpace:'pre-wrap', textShadow:'0 2px 5px #000, 0 0 12px #000', touchAction:'none', userSelect:'none', cursor:'      {!!locationLabel.trim() && !isVideo && <div role="button" tabIndex={0} aria-label="Déplacer ou agrandir le lieu sur la photo" data-matchfit-location-layer="true"
+        style={{ position:'absolute', top:'50%', left:'50%', width:'max-content', maxWidth:'84%', transform:`translate(calc(-50% + ${textOffset.x}px), calc(-50% + ${textOffset.y}px))`, color:textColor, fontWeight:800, fontSize:`${textSize}px`, textAlign:'center', overflowWrap:'anywhere', whiteSpace:'pre-wrap', textShadow:'0 2px 5px #000, 0 0 12px #000', touchAction:'none', userSelect:'none', cursor:'grab', zIndex: 3 }}>{caption}</div>}
+      {!!locationLabel.trim() && !isVideo && <div role="button" tabIndex={0} aria-label="Déplacer ou agrandir le lieu sur la photo" data-matchfit-location-layer="true"
         onClick={() => { if (!stickerMoved.current) setActiveTool('location') }}
         onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') setActiveTool('location') }}
         onPointerDown={e => {
@@ -989,7 +990,6 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
           }
         }}
         style={{ position: 'absolute', left: '50%', top: '50%', transform: `translate(calc(-50% + ${timeOffset.x}px), calc(-50% + ${timeOffset.y}px))`, background: '#0009', border: '1px solid #ffffff55', borderRadius: 18, color: '#fff', padding: '9px 14px', fontSize: timeSize, fontWeight: 700, whiteSpace: 'nowrap', maxWidth: '85%', overflow: 'hidden', textOverflow: 'ellipsis', touchAction: 'none', userSelect: 'none', zIndex: 2 }}>{timeLabel}</div>}
-ct: 'none', zIndex: 2 }}>⌖ {locationLabel}</div>}
       {draggingSticker && !isVideo && <div aria-label="Glisser ici pour supprimer" style={{ position: 'absolute', left: '50%', bottom: 58, transform: 'translateX(-50%)', width: 72, height: 72, display: 'grid', placeItems: 'center', borderRadius: 24, background: overTrash ? '#ff555544' : '#ffffff18', border: overTrash ? '2px solid #ff7474' : '1px solid #ffffff55', backdropFilter: 'blur(5px)', pointerEvents: 'none', zIndex: 6, fontSize: 30, color: '#fff' }}>🗑</div>}
       {!!comment.trim() && !isVideo && <div style={{ position: 'absolute', bottom: 90, left: '7%', right: '7%', pointerEvents: 'none', fontSize: 19, fontWeight: 600, textShadow: '0 1px 5px #000, 0 0 8px #000', overflowWrap: 'anywhere' }}>{comment}</div>}
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(#000a,transparent)' }}>
