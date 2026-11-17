@@ -638,7 +638,7 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
 
 // Ouvre directement la caméra native iOS, sans afficher l'aperçu web intermédiaire.
 function MatchFitDirectNativeCamera({ onCapture, onClose }: {
-  onCapture: (file: File) => void
+  onCapture: (file: File, mode?: CreationType) => void
   onClose: () => void
 }) {
   const launched = useRef(false)
@@ -655,7 +655,7 @@ function MatchFitDirectNativeCamera({ onCapture, onClose }: {
         const blob = await response.blob()
         if (active) onCapture(new File([blob], media.name || `matchfit-${Date.now()}.jpg`, {
           type: media.mimeType || blob.type || 'image/jpeg'
-        }))
+        }), media.mode)
       } catch (err) {
         if (!active) return
         const message = err instanceof Error ? err.message : String(err)
@@ -2281,7 +2281,8 @@ function App() {
     setCreationType(mode)
     setCameraOpen(true)
   }
-  function capturedMedia(file: File) {
+  function capturedMedia(file: File, mode?: CreationType) {
+    if (mode) setCreationType(mode)
     setCameraOpen(false)
     setEditingFile(file)
   }
@@ -3681,7 +3682,7 @@ function App() {
       )}
 
       {editingFile && <MatchFitMediaEditor file={editingFile} onDone={completeMediaEdit} onCancel={() => { setEditingFile(null); setCameraOpen(true) }} />}
-      {cameraOpen && Capacitor.getPlatform() === 'ios' && creationType === 'story'
+      {cameraOpen && Capacitor.getPlatform() === 'ios'
         ? <MatchFitDirectNativeCamera onClose={() => setCameraOpen(false)} onCapture={capturedMedia} />
         : cameraOpen && <MatchFitCamera mode={creationType === 'reel' ? 'reel' : creationType === 'publication' ? 'publication' : 'story'} onMode={mode => setCreationType(mode)} onClose={() => setCameraOpen(false)} onCapture={capturedMedia} />}
       {creationOpen && (
