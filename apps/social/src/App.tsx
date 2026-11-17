@@ -514,6 +514,8 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
   const [brightness, setBrightness] = useState(100)
   const [filter, setFilter] = useState<'normal' | 'contrast' | 'warm' | 'mono'>('normal')
   const [caption, setCaption] = useState('')
+  const [comment, setComment] = useState('')
+  const [activeTool, setActiveTool] = useState<'text' | 'filter' | 'light' | null>(null)
   const [textColor, setTextColor] = useState('#ffffff')
   const [textSize, setTextSize] = useState(48)
   const [saving, setSaving] = useState(false)
@@ -559,6 +561,27 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
           ctx.fillText(text, canvas.width / 2, y)
         })
       }
+      if (comment.trim()) {
+        const fontSize = Math.max(24, Math.round(canvas.width * 26 / 390))
+        ctx.font = `600 ${fontSize}px -apple-system, Arial, sans-serif`
+        ctx.textAlign = 'left'; ctx.textBaseline = 'bottom'
+        const words = comment.trim().split(/\s+/)
+        const lines: string[] = []; let line = ''
+        for (const word of words) {
+          const candidate = line ? `${line} ${word}` : word
+          if (ctx.measureText(candidate).width > canvas.width * .84 && line) { lines.push(line); line = word }
+          else line = candidate
+        }
+        if (line) lines.push(line)
+        const x = canvas.width * .07
+        const baseY = canvas.height * .93
+        lines.slice(-3).forEach((text, index, arr) => {
+          const y = baseY - (arr.length - 1 - index) * fontSize * 1.3
+          ctx.lineWidth = Math.max(3, fontSize / 9)
+          ctx.strokeStyle = '#000a'; ctx.strokeText(text, x, y)
+          ctx.fillStyle = '#fff'; ctx.fillText(text, x, y)
+        })
+      }
       bitmap.close()
       const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(b => b ? resolve(b) : reject(new Error('Export impossible')), 'image/jpeg', .98))
       onDone(new File([blob], `matchfit-edited-${Date.now()}.jpg`, { type: 'image/jpeg' }))
@@ -566,33 +589,28 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
     finally { setSaving(false) }
   }
   return <div style={{ position: 'fixed', inset: 0, zIndex: 5000, background: '#050505', color: '#fff', display: 'flex', flexDirection: 'column', paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
-    {/* Studio Instagram : photo plein écran, outils superposés sans quitter l'aperçu. */}
-    <div style={{ position: 'relative', flex: 1, minHeight: 0, overflow: 'hidden', background: '#101014' }}>
-      {url && (isVideo
-        ? <video src={url} playsInline controls style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-        : <img src={url} alt="Photo à modifier" style={{ width: '100%', height: '100%', objectFit: 'contain', filter: cssFilter }} />)}
+    <div style={{ position: 'relative', flex: 1, minHeight: 0, background: '#101014', overflow: 'hidden' }}>
+      {url && (isVideo ? <video src={url} playsInline controls style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> : <img src={url} alt="Photo à modifier" style={{ width: '100%', height: '100%', objectFit: 'contain', filter: cssFilter }} />)}
       {!!caption.trim() && !isVideo && <div style={{ position: 'absolute', top: '50%', left: '8%', right: '8%', transform: 'translateY(-50%)', pointerEvents: 'none', color: textColor, fontWeight: 800, fontSize: `${textSize}px`, textAlign: 'center', overflowWrap: 'anywhere', textShadow: '0 2px 5px #000, 0 0 12px #000' }}>{caption}</div>}
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(#0009,transparent)' }}>
+      {!!comment.trim() && !isVideo && <div style={{ position: 'absolute', bottom: 90, left: '7%', right: '7%', pointerEvents: 'none', fontSize: 19, fontWeight: 600, textShadow: '0 1px 5px #000, 0 0 8px #000', overflowWrap: 'anywhere' }}>{comment}</div>}
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(#000a,transparent)' }}>
         <button type="button" onClick={onCancel} aria-label="Reprendre une photo" style={{ color: '#fff', background: '#0007', border: 0, borderRadius: 24, width: 42, height: 42, fontSize: 27 }}>×</button>
-        <strong style={{ letterSpacing: 1 }}>MATCH<span style={{ color: '#ff8a4b' }}>FIT</span></strong>
+        <strong>MATCH<span style={{ color: '#ff8a4b' }}>FIT</span></strong>
         <button type="button" disabled={saving} onClick={() => void finish()} style={{ color: '#fff', background: '#ff704e', border: 0, borderRadius: 24, padding: '11px 16px', fontWeight: 800 }}>{saving ? 'Export…' : 'Suivant →'}</button>
       </div>
-      {!isVideo && <div style={{ position: 'absolute', right: 12, top: 84, display: 'grid', gap: 13 }}>
-        <button type="button" onClick={() => document.getElementById('mf-studio-text')?.focus()} aria-label="Ajouter du texte" style={{ border: 0, background: '#0009', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 22, fontWeight: 800 }}>Aa</button>
-        <button type="button" onClick={() => setFilter(f => f === 'normal' ? 'contrast' : f === 'contrast' ? 'warm' : f === 'warm' ? 'mono' : 'normal')} aria-label="Changer de filtre" style={{ border: 0, background: '#0009', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 22 }}>◐</button>
+      {!isVideo && <div style={{ position: 'absolute', right: 12, top: 86, display: 'grid', gap: 13 }}>
+        <button type="button" onClick={() => setActiveTool(t => t === 'text' ? null : 'text')} aria-label="Ajouter du texte sur la photo" style={{ border: 0, background: '#000a', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 22, fontWeight: 800 }}>Aa</button>
+        <button type="button" onClick={() => setActiveTool(t => t === 'filter' ? null : 'filter')} aria-label="Filtres" style={{ border: 0, background: '#000a', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 22 }}>◐</button>
+        <button type="button" onClick={() => setActiveTool(t => t === 'light' ? null : 'light')} aria-label="Luminosité" style={{ border: 0, background: '#000a', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 22 }}>☀</button>
       </div>}
-      {error && <div role="alert" style={{ position: 'absolute', bottom: 12, left: 16, right: 16, color: '#ffb0b0', background: '#000c', borderRadius: 12, padding: 10 }}>{error}</div>}
-    </div>
-    <div style={{ background: '#101014', padding: '12px 16px 16px', display: 'grid', gap: 12, maxHeight: '36vh', overflowY: 'auto' }}>
-      {isVideo ? <small style={{ color: '#bbb' }}>Vidéo conservée sans retouche pour le moment.</small> : <>
-        <input id="mf-studio-text" value={caption} onChange={e => setCaption(e.target.value)} maxLength={120} placeholder="Aa  Ajouter du texte…" aria-label="Texte sur la photo" style={{ background: '#25252b', color: '#fff', border: '1px solid #444', borderRadius: 14, padding: 12, fontSize: 16, width: '100%' }} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 13 }}>
-          <label htmlFor="mf-text-color">Couleur</label><input id="mf-text-color" type="color" value={textColor} onChange={e => setTextColor(e.target.value)} />
-          <label htmlFor="mf-text-size">Taille</label><input id="mf-text-size" type="range" min="24" max="76" value={textSize} onChange={e => setTextSize(Number(e.target.value))} style={{ flex: 1 }} />
-        </div>
-        <label style={{ display: 'grid', gap: 4, fontSize: 13 }}>Luminosité : {brightness}%<input type="range" min="50" max="160" value={brightness} onChange={e => setBrightness(Number(e.target.value))} /></label>
-        <div style={{ display: 'flex', gap: 7 }}>{(['normal','contrast','warm','mono'] as const).map(f => <button key={f} type="button" onClick={() => setFilter(f)} style={{ border: filter === f ? '2px solid #ff8a4b' : '1px solid #555', background: '#24242a', color: '#fff', borderRadius: 12, padding: '9px 6px', flex: 1, fontSize: 12 }}>{f === 'normal' ? 'Normal' : f === 'contrast' ? 'Éclat' : f === 'warm' ? 'Chaud' : 'N&B'}</button>)}</div>
-      </>}
+      {activeTool && !isVideo && <div style={{ position: 'absolute', top: 240, left: 16, right: 70, background: '#17171eea', border: '1px solid #ffffff30', borderRadius: 16, padding: 12, display: 'grid', gap: 12 }}>
+        {activeTool === 'text' && <><input value={caption} onChange={e => setCaption(e.target.value)} maxLength={120} placeholder="Texte sur l'image…" aria-label="Texte sur l'image" autoFocus style={{ width: '100%', background: '#292933', color: '#fff', border: '1px solid #555', borderRadius: 9, padding: 10, fontSize: 16 }} /><div style={{ display: 'flex', gap: 10, alignItems: 'center' }}><input type="color" value={textColor} onChange={e => setTextColor(e.target.value)} aria-label="Couleur du texte" /><input type="range" min="24" max="76" value={textSize} onChange={e => setTextSize(Number(e.target.value))} aria-label="Taille du texte" style={{ flex: 1 }} /></div></>}
+        {activeTool === 'filter' && <div style={{ display: 'flex', gap: 5 }}>{(['normal','contrast','warm','mono'] as const).map(f => <button key={f} type="button" onClick={() => setFilter(f)} style={{ border: filter === f ? '2px solid #ff8a4b' : '1px solid #555', background: '#252530', color: '#fff', borderRadius: 9, padding: '9px 5px', flex: 1, fontSize: 11 }}>{f === 'normal' ? 'Normal' : f === 'contrast' ? 'Éclat' : f === 'warm' ? 'Chaud' : 'N&B'}</button>)}</div>}
+        {activeTool === 'light' && <label style={{ display: 'grid', gap: 8, fontSize: 13 }}>Luminosité {brightness}%<input type="range" min="50" max="160" value={brightness} onChange={e => setBrightness(Number(e.target.value))} /></label>}
+        <button type="button" onClick={() => setActiveTool(null)} style={{ justifySelf: 'end', border: 0, background: '#ffffff22', color: '#fff', padding: '7px 13px', borderRadius: 9 }}>Terminé</button>
+      </div>}
+      {error && <div role="alert" style={{ position: 'absolute', bottom: 85, left: 16, right: 16, color: '#ffb0b0', background: '#000d', borderRadius: 12, padding: 10 }}>{error}</div>}
+      {!isVideo && <div style={{ position: 'absolute', bottom: 12, left: 16, right: 16 }}><input value={comment} onChange={e => setComment(e.target.value)} maxLength={160} placeholder="Ajouter un commentaire…" aria-label="Commentaire en bas de la photo" style={{ width: '100%', border: '1px solid #ffffff66', borderRadius: 24, background: '#000a', color: '#fff', padding: '14px 18px', fontSize: 16 }} /></div>}
     </div>
   </div>
 }
