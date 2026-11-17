@@ -3662,7 +3662,6 @@ function App() {
               <div className="creation-form">
                 <form onSubmit={publishStory} style={{ display: 'grid', gap: 12 }}>
                   <p>Ta story sera visible pendant 24 h. Les comptes privés sont protégés.</p>
-                  <input type="file" accept="image/jpeg,image/png,image/webp,video/mp4" required onChange={event => setStoryFile(event.target.files?.[0] || null)} />
                   {storyPreview && (storyFile?.type === 'video/mp4' ? <video src={storyPreview} controls playsInline style={{ maxHeight: 320, width: '100%' }} /> : <img src={storyPreview} alt="Aperçu" style={{ maxHeight: 320, width: '100%', objectFit: 'contain' }} />)}
                   {storyError && <p role="alert" style={{ color: '#ff7777' }}>{storyError}</p>}
                   <button type="submit" disabled={storyBusy || !storyFile} style={primaryStyle}>{storyBusy ? 'Publication…' : 'Publier ma story'}</button>
