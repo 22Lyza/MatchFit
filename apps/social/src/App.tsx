@@ -523,6 +523,8 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
   const textDrag = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null)
   const [photoZoom, setPhotoZoom] = useState(1)
   const [photoOffset, setPhotoOffset] = useState({ x: 0, y: 0 })
+  // Un geste appartient soit au texte, soit à la photo, jamais aux deux.
+  const gestureOwner = useRef<'text' | 'photo' | null>(null)
   const photoPointers = useRef(new Map<number, { x: number; y: number }>())
   const photoGesture = useRef<{ distance: number; zoom: number; x: number; y: number; ox: number; oy: number } | null>(null)
   const photoFrame = useRef<HTMLDivElement | null>(null)
@@ -641,7 +643,8 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
     <div style={{ position: 'relative', flex: 1, minHeight: 0, background: '#101014', overflow: 'hidden' }}>
       <div ref={photoFrame} style={{ position: 'absolute', inset: 0, overflow: 'hidden', touchAction: isVideo ? 'auto' : 'none' }}
         onPointerDown={e => {
-          if (isVideo || (e.target as HTMLElement).closest('[data-matchfit-text-layer]')) return
+          if (isVideo || gestureOwner.current === 'text' || activePointers.current.size > 0 || (e.target as HTMLElement).closest('[data-matchfit-text-layer]')) return
+          gestureOwner.current = 'photo'
           e.currentTarget.setPointerCapture(e.pointerId)
           photoPointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
           const points = [...photoPointers.current.values()]
@@ -649,7 +652,7 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
           else if (points.length === 1) photoGesture.current = { distance: 0, zoom: photoZoom, x: e.clientX, y: e.clientY, ox: photoOffset.x, oy: photoOffset.y }
         }}
         onPointerMove={e => {
-          if (isVideo || !photoPointers.current.has(e.pointerId)) return
+          if (isVideo || gestureOwner.current !== 'photo' || !photoPointers.current.has(e.pointerId)) return
           photoPointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
           const points = [...photoPointers.current.values()]
           const g = photoGesture.current
@@ -657,8 +660,20 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
           if (points.length === 2 && g.distance > 0) setPhotoZoom(Math.max(1, Math.min(5, g.zoom * Math.hypot(points[0].x-points[1].x, points[0].y-points[1].y) / g.distance)))
           else if (points.length === 1 && g.distance === 0) setPhotoOffset({ x: g.ox + e.clientX - g.x, y: g.oy + e.clientY - g.y })
         }}
-        onPointerUp={e => { photoPointers.current.delete(e.pointerId); photoGesture.current = null }}
-        onPointerCancel={e => { photoPointers.current.delete(e.pointerId); photoGesture.current = null }}
+        onPointerUp={e => {
+          photoPointers.current.delete(e.pointerId)
+          photoGesture.current = null
+          if (photoPointers.current.size === 0) gestureOwner.current = null
+          else {
+            const remaining = [...photoPointers.current.values()][0]
+            photoGesture.current = { distance: 0, zoom: photoZoom, x: remaining.x, y: remaining.y, ox: photoOffset.x, oy: photoOffset.y }
+          }
+        }}
+        onPointerCancel={e => {
+          photoPointers.current.delete(e.pointerId)
+          photoGesture.current = null
+          if (photoPointers.current.size === 0) gestureOwner.current = null
+        }}
       >
         {url && (isVideo ? <video src={url} playsInline controls style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> :
           <img src={url} alt="Photo à modifier" draggable={false} style={{ position: 'absolute', width: photoDisplayWidth * photoZoom, height: photoDisplayHeight * photoZoom, maxWidth: 'none', left: '50%', top: '50%', transform: `translate(calc(-50% + ${photoOffset.x}px), calc(-50% + ${photoOffset.y}px))`, filter: cssFilter, pointerEvents: 'none' }} />)}
@@ -670,6 +685,8 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
         onKeyDown={e => { if(e.key==='Enter' || e.key===' ') setActiveTool('text') }}
         onPointerDown={e => {
           e.stopPropagation()
+          if (gestureOwner.current === 'photo' || photoPointers.current.size > 0) return
+          gestureOwner.current = 'text'
           activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
           e.currentTarget.setPointerCapture(e.pointerId)
           if (activePointers.current.size === 1) {
@@ -682,7 +699,7 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
         }}
         onPointerMove={e => {
           e.stopPropagation()
-          if (!activePointers.current.has(e.pointerId)) return
+          if (gestureOwner.current !== 'text' || !activePointers.current.has(e.pointerId)) return
           activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
           if (activePointers.current.size === 1 && textDrag.current) {
             setTextOffset({ x: textDrag.current.ox + e.clientX - textDrag.current.x, y: textDrag.current.oy + e.clientY - textDrag.current.y })
@@ -695,12 +712,14 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
           activePointers.current.delete(e.pointerId)
           textDrag.current = null
           textPinchDistance.current = null
+          if (activePointers.current.size === 0) gestureOwner.current = null
         }}
         onPointerCancel={e => {
           e.stopPropagation()
           activePointers.current.delete(e.pointerId)
           textDrag.current = null
           textPinchDistance.current = null
+          if (activePointers.current.size === 0) gestureOwner.current = null
         }}
         style={{ position:'absolute', top:'50%', left:'50%', width:'max-content', maxWidth:'84%', transform:`translate(calc(-50% + ${textOffset.x}px), calc(-50% + ${textOffset.y}px))`, color:textColor, fontWeight:800, fontSize:`${textSize}px`, textAlign:'center', overflowWrap:'anywhere', whiteSpace:'pre-wrap', textShadow:'0 2px 5px #000, 0 0 12px #000', touchAction:'none', userSelect:'none', cursor:'grab', lineHeight:1.15 }}
       >{caption}</div>}
