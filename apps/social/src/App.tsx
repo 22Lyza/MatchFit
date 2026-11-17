@@ -519,6 +519,15 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
   const [activeTool, setActiveTool] = useState<'text' | 'filter' | 'light' | null>(null)
   const [textColor, setTextColor] = useState('#ffffff')
   const [textSize, setTextSize] = useState(48)
+  const [textOffset, setTextOffset] = useState({ x: 0, y: 0 })
+  const textDrag = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null)
+  const [photoZoom, setPhotoZoom] = useState(1)
+  const [photoOffset, setPhotoOffset] = useState({ x: 0, y: 0 })
+  const photoPointers = useRef(new Map<number, { x: number; y: number }>())
+  const photoGesture = useRef<{ distance: number; zoom: number; x: number; y: number; ox: number; oy: number } | null>(null)
+  const photoFrame = useRef<HTMLDivElement | null>(null)
+  const [photoSize, setPhotoSize] = useState({ width: 1, height: 1 })
+  const [photoFrameSize, setPhotoFrameSize] = useState({ width: 1, height: 1 })
   const activePointers = useRef<Map<number, {x:number;y:number}>>(new Map())
   const textPinchDistance = useRef<number | null>(null)
   const textPinchStartSize = useRef(48)
@@ -539,6 +548,26 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
     setUrl(objectUrl)
     return () => URL.revokeObjectURL(objectUrl)
   }, [file])
+  useEffect(() => {
+    if (isVideo) return
+    const image = new Image()
+    image.onload = () => setPhotoSize({ width: image.naturalWidth, height: image.naturalHeight })
+    image.src = url
+  }, [url, isVideo])
+  useEffect(() => {
+    if (!photoFrame.current) return
+    const update = () => {
+      if (photoFrame.current) setPhotoFrameSize({ width: photoFrame.current.clientWidth, height: photoFrame.current.clientHeight })
+    }
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(photoFrame.current)
+    return () => observer.disconnect()
+  }, [])
+  const photoBaseScale = Math.min(photoFrameSize.width / photoSize.width, photoFrameSize.height / photoSize.height)
+  const photoDisplayWidth = photoSize.width * photoBaseScale
+  const photoDisplayHeight = photoSize.height * photoBaseScale
+  const photoScale = photoZoom * photoBaseScale
   const cssFilter = `brightness(${brightness}%) ${filter === 'contrast' ? 'contrast(1.22) saturate(1.15)' : filter === 'warm' ? 'sepia(.2) saturate(1.25)' : filter === 'mono' ? 'grayscale(1)' : ''}`
   async function finish() {
     if (saving) return
@@ -551,7 +580,14 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
       const ctx = canvas.getContext('2d')
       if (!ctx) throw new Error('Édition indisponible')
       ctx.filter = cssFilter
-      ctx.drawImage(bitmap, 0, 0)
+      // Recadrage : exporter le même zoom/déplacement que l'aperçu.
+      const relativeX = photoOffset.x / Math.max(photoDisplayWidth, 1)
+      const relativeY = photoOffset.y / Math.max(photoDisplayHeight, 1)
+      const cropWidth = bitmap.width / photoZoom
+      const cropHeight = bitmap.height / photoZoom
+      const cropX = (bitmap.width - cropWidth) / 2 - relativeX * bitmap.width / photoZoom
+      const cropY = (bitmap.height - cropHeight) / 2 - relativeY * bitmap.height / photoZoom
+      ctx.drawImage(bitmap, cropX, cropY, cropWidth, cropHeight, 0, 0, canvas.width, canvas.height)
       ctx.filter = 'none'
       if (caption.trim()) {
         const fontSize = Math.max(24, Math.round(canvas.width * textSize / 390))
@@ -567,11 +603,11 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
           else line = candidate
         }
         if (line) lines.push(line)
-        const startY = canvas.height / 2 - (lines.length - 1) * fontSize * .62
+        const startY = canvas.height / 2 + textOffset.y * canvas.height / Math.max(photoFrameSize.height, 1) - (lines.length - 1) * fontSize * .62
         lines.forEach((text, i) => {
           const y = startY + i * fontSize * 1.24
-          ctx.strokeText(text, canvas.width / 2, y)
-          ctx.fillText(text, canvas.width / 2, y)
+          ctx.strokeText(text, canvas.width / 2 + textOffset.x * canvas.width / Math.max(photoFrameSize.width, 1), y)
+          ctx.fillText(text, canvas.width / 2 + textOffset.x * canvas.width / Math.max(photoFrameSize.width, 1), y)
         })
       }
       if (comment.trim()) {
@@ -603,16 +639,40 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
   }
   return <div style={{ position: 'fixed', inset: 0, zIndex: 5000, background: '#050505', color: '#fff', display: 'flex', flexDirection: 'column', paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
     <div style={{ position: 'relative', flex: 1, minHeight: 0, background: '#101014', overflow: 'hidden' }}>
-      {url && (isVideo ? <video src={url} playsInline controls style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> : <img src={url} alt="Photo à modifier" style={{ width: '100%', height: '100%', objectFit: 'contain', filter: cssFilter }} />)}
+      <div ref={photoFrame} style={{ position: 'absolute', inset: 0, overflow: 'hidden', touchAction: isVideo ? 'auto' : 'none' }}
+        onPointerDown={e => {
+          if (isVideo) return
+          e.currentTarget.setPointerCapture(e.pointerId)
+          photoPointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+          const points = [...photoPointers.current.values()]
+          if (points.length === 2) photoGesture.current = { distance: Math.hypot(points[0].x-points[1].x, points[0].y-points[1].y), zoom: photoZoom, x: e.clientX, y: e.clientY, ox: photoOffset.x, oy: photoOffset.y }
+          else if (points.length === 1) photoGesture.current = { distance: 0, zoom: photoZoom, x: e.clientX, y: e.clientY, ox: photoOffset.x, oy: photoOffset.y }
+        }}
+        onPointerMove={e => {
+          if (isVideo || !photoPointers.current.has(e.pointerId)) return
+          photoPointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+          const points = [...photoPointers.current.values()]
+          const g = photoGesture.current
+          if (!g) return
+          if (points.length === 2 && g.distance > 0) setPhotoZoom(Math.max(1, Math.min(5, g.zoom * Math.hypot(points[0].x-points[1].x, points[0].y-points[1].y) / g.distance)))
+          else if (points.length === 1 && g.distance === 0) setPhotoOffset({ x: g.ox + e.clientX - g.x, y: g.oy + e.clientY - g.y })
+        }}
+        onPointerUp={e => { photoPointers.current.delete(e.pointerId); photoGesture.current = null }}
+        onPointerCancel={e => { photoPointers.current.delete(e.pointerId); photoGesture.current = null }}
+      >
+        {url && (isVideo ? <video src={url} playsInline controls style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> :
+          <img src={url} alt="Photo à modifier" draggable={false} style={{ position: 'absolute', width: photoDisplayWidth * photoZoom, height: photoDisplayHeight * photoZoom, maxWidth: 'none', left: '50%', top: '50%', transform: `translate(calc(-50% + ${photoOffset.x}px), calc(-50% + ${photoOffset.y}px))`, filter: cssFilter, pointerEvents: 'none' }} />)}
+      </div>
+      {!isVideo && <button type="button" onClick={() => { setPhotoZoom(1); setPhotoOffset({ x: 0, y: 0 }) }} style={{ position: 'absolute', bottom: 96, left: 12, zIndex: 2, background: '#000a', color: '#fff', border: 0, borderRadius: 12, padding: '9px 12px' }}>Réinitialiser le cadrage</button>}
       {!!caption.trim() && !isVideo && <div
         role="button" tabIndex={0} aria-label="Modifier le texte sur la photo"
         onClick={() => { if (!pinchHappened.current) setActiveTool('text'); pinchHappened.current=false }}
         onKeyDown={e => { if(e.key==='Enter' || e.key===' ') setActiveTool('text') }}
-        onPointerDown={e => { activePointers.current.set(e.pointerId,{x:e.clientX,y:e.clientY}); e.currentTarget.setPointerCapture(e.pointerId); updatePinch() }}
-        onPointerMove={e => { if(activePointers.current.has(e.pointerId)) { activePointers.current.set(e.pointerId,{x:e.clientX,y:e.clientY}); updatePinch() } }}
-        onPointerUp={e => { activePointers.current.delete(e.pointerId); if(activePointers.current.size<2) textPinchDistance.current=null }}
+        onPointerDown={e => { activePointers.current.set(e.pointerId,{x:e.clientX,y:e.clientY}); e.currentTarget.setPointerCapture(e.pointerId); textDrag.current = { x:e.clientX, y:e.clientY, ox:textOffset.x, oy:textOffset.y }; updatePinch() }}
+        onPointerMove={e => { if(activePointers.current.has(e.pointerId)) { activePointers.current.set(e.pointerId,{x:e.clientX,y:e.clientY}); if(activePointers.current.size === 1 && textDrag.current) setTextOffset({ x: textDrag.current.ox + e.clientX - textDrag.current.x, y: textDrag.current.oy + e.clientY - textDrag.current.y }); updatePinch() } }}
+        onPointerUp={e => { activePointers.current.delete(e.pointerId); if(activePointers.current.size<2) textPinchDistance.current=null; textDrag.current=null }}
         onPointerCancel={e => { activePointers.current.delete(e.pointerId); textPinchDistance.current=null }}
-        style={{ position:'absolute', top:'50%', left:'8%', right:'8%', transform:'translateY(-50%)', color:textColor, fontWeight:800, fontSize:`${textSize}px`, textAlign:'center', overflowWrap:'anywhere', textShadow:'0 2px 5px #000, 0 0 12px #000', touchAction:'none', userSelect:'none', cursor:'pointer', lineHeight:1.15 }}
+        style={{ position:'absolute', top:'50%', left:'8%', right:'8%', transform:`translate(calc(-0px + ${textOffset.x}px), calc(-50% + ${textOffset.y}px))`, color:textColor, fontWeight:800, fontSize:`${textSize}px`, textAlign:'center', overflowWrap:'anywhere', textShadow:'0 2px 5px #000, 0 0 12px #000', touchAction:'none', userSelect:'none', cursor:'pointer', lineHeight:1.15 }}
       >{caption}</div>}
       {!!comment.trim() && !isVideo && <div style={{ position: 'absolute', bottom: 90, left: '7%', right: '7%', pointerEvents: 'none', fontSize: 19, fontWeight: 600, textShadow: '0 1px 5px #000, 0 0 8px #000', overflowWrap: 'anywhere' }}>{comment}</div>}
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(#000a,transparent)' }}>
@@ -626,7 +686,7 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
         <button type="button" onClick={() => setActiveTool(t => t === 'light' ? null : 'light')} aria-label="Luminosité" style={{ border: 0, background: '#000a', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 22 }}>☀</button>
       </div>}
       {activeTool && !isVideo && <div style={{ position: 'absolute', top: 240, left: 16, right: 70, background: '#17171eea', border: '1px solid #ffffff30', borderRadius: 16, padding: 12, display: 'grid', gap: 12 }}>
-        {activeTool === 'text' && <><input value={caption} onChange={e => setCaption(e.target.value)} maxLength={120} placeholder="Texte sur l'image…" aria-label="Texte sur l'image" autoFocus style={{ width: '100%', background: '#292933', color: '#fff', border: '1px solid #555', borderRadius: 9, padding: 10, fontSize: 16 }} /><div style={{ display: 'flex', gap: 10, alignItems: 'center' }}><input type="color" value={textColor} onChange={e => setTextColor(e.target.value)} aria-label="Couleur du texte" /><input type="range" min="16" max="160" value={textSize} onChange={e => setTextSize(Number(e.target.value))} aria-label="Taille du texte" style={{ flex: 1 }} /></div></>}
+        {activeTool === 'text' && <><input value={caption} onChange={e => setCaption(e.target.value)} maxLength={120} placeholder="Texte sur l'image…" aria-label="Texte sur l'image" autoFocus style={{ width: '100%', background: '#292933', color: '#fff', border: '1px solid #555', borderRadius: 9, padding: 10, fontSize: 16 }} /><div style={{ display: 'flex', gap: 10, alignItems: 'center' }}><input type="color" value={textColor} onChange={e => setTextColor(e.target.value)} aria-label="Couleur du texte" /><span style={{ fontSize: 12, color: '#aaa' }}>Pince le texte avec deux doigts pour changer sa taille</span></div></>}
         {activeTool === 'filter' && <div style={{ display: 'flex', gap: 5 }}>{(['normal','contrast','warm','mono'] as const).map(f => <button key={f} type="button" onClick={() => setFilter(f)} style={{ border: filter === f ? '2px solid #ff8a4b' : '1px solid #555', background: '#252530', color: '#fff', borderRadius: 9, padding: '9px 5px', flex: 1, fontSize: 11 }}>{f === 'normal' ? 'Normal' : f === 'contrast' ? 'Éclat' : f === 'warm' ? 'Chaud' : 'N&B'}</button>)}</div>}
         {activeTool === 'light' && <label style={{ display: 'grid', gap: 8, fontSize: 13 }}>Luminosité {brightness}%<input type="range" min="50" max="160" value={brightness} onChange={e => setBrightness(Number(e.target.value))} /></label>}
         <button type="button" onClick={() => setActiveTool(null)} style={{ justifySelf: 'end', border: 0, background: '#ffffff22', color: '#fff', padding: '7px 13px', borderRadius: 9 }}>Terminé</button>
@@ -3486,15 +3546,15 @@ function App() {
               </div>
               {archiveSelectedDay && <p style={{fontSize:13,color:'#aaa'}}>Stories du {new Date(archiveSelectedDay+'T12:00:00').toLocaleDateString('fr-CH',{day:'numeric',month:'long',year:'numeric'})}</p>}
               {storyArchive.length === 0 && <p>Aucune story archivée pour le moment.</p>}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
-                {storyArchive.filter(item => !archiveSelectedDay || (()=>{const d=new Date(item.created_at);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`===archiveSelectedDay})()).map(item => <div key={item.id}>
+              {archiveSelectedDay && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
+                {storyArchive.filter(item => {const d=new Date(item.created_at);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`===archiveSelectedDay}).map(item => <div key={item.id}>
                   <button type="button" onClick={() => openStoryViewer([item])} style={{ border: 0, padding: 0, width: '100%', background: '#24252e', color: '#fff' }}>
                     {item.media_type === 'video' ? <video src={item.url} muted playsInline style={{ width: '100%', aspectRatio: '3/4', objectFit: 'cover' }} /> : <img src={item.url} alt="Story archivée" style={{ width: '100%', aspectRatio: '3/4', objectFit: 'cover' }} />}
                   </button>
                   {item.is_highlight && <div style={{fontSize:11,color:'#ff5966',fontWeight:700,textAlign:'center'}}>● À la une</div>}
                   <button type="button" onClick={() => void toggleStoryHighlight(item)} style={{ fontSize: 11, width: '100%' }}>{item.is_highlight ? '★ À la une' : '☆ Mettre à la une'}</button>
                 </div>)}
-              </div>
+              </div>}
             </div>
           ) : settingsSection === 'confidentialite' ? (
             <div style={cardStyle}>
