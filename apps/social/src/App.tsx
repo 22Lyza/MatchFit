@@ -7,6 +7,7 @@ import { supabase } from './supabase'
 import { Capacitor, registerPlugin } from '@capacitor/core'
 import type { BackgroundGeolocationPlugin } from '@capacitor-community/background-geolocation'
 import { FilePicker } from '@capawesome/capacitor-file-picker'
+import { Camera, CameraResultType, CameraSource } from '@capacitor/camera'
 
 const BackgroundGeolocation = registerPlugin<BackgroundGeolocationPlugin>('BackgroundGeolocation')
 
@@ -661,6 +662,35 @@ function MatchFitCamera({ onCapture, onClose, mode, onMode }: {
       setTorch(next)
     } catch { setError('Le flash matériel n’est pas accessible avec cette caméra. Une caméra iOS native sera nécessaire.') }
   }
+  const [nativePhotoBusy, setNativePhotoBusy] = useState(false)
+  async function takeNativePhoto() {
+    if (nativePhotoBusy) return
+    setNativePhotoBusy(true)
+    setError('')
+    try {
+      // La capture native iOS fournit une vraie photo, pas une image de l'aperçu vidéo.
+      const photo = await Camera.getPhoto({
+        source: CameraSource.Camera,
+        resultType: CameraResultType.Uri,
+        quality: 100,
+        allowEditing: false,
+        saveToGallery: false,
+        correctOrientation: true,
+      })
+      if (!photo.webPath) throw new Error('Photo inaccessible après la capture.')
+      const response = await fetch(photo.webPath)
+      if (!response.ok) throw new Error('Impossible de lire la photo prise.')
+      const blob = await response.blob()
+      const extension = photo.format === 'png' ? 'png' : 'jpeg'
+      const mime = blob.type || (extension === 'png' ? 'image/png' : 'image/jpeg')
+      onCapture(new File([blob], `matchfit-native-${Date.now()}.${extension === 'png' ? 'png' : 'jpg'}`, { type: mime }))
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      if (!/cancel|dismiss|annul/i.test(message)) setError(message || 'Impossible de prendre la photo native.')
+    } finally {
+      setNativePhotoBusy(false)
+    }
+  }
   function takePhoto() {
     const video = previewRef.current
     if (!video || !video.videoWidth) return
@@ -698,6 +728,7 @@ function MatchFitCamera({ onCapture, onClose, mode, onMode }: {
     if (holdTimerRef.current !== null) window.clearTimeout(holdTimerRef.current)
     holdTimerRef.current = null
     if (recordingRef.current) { if (recorderRef.current?.state === 'recording') recorderRef.current.stop() }
+    else if (Capacitor.isNativePlatform()) void takeNativePhoto()
     else takePhoto()
   }
   return <div style={{ position: 'fixed', inset: 0, zIndex: 4000, background: '#050506', display: 'flex', flexDirection: 'column', paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
@@ -719,10 +750,10 @@ function MatchFitCamera({ onCapture, onClose, mode, onMode }: {
       <div style={{ display: 'flex', gap: 24, justifyContent: 'center' }}>{(['story','publication','reel'] as const).map(value => <button key={value} type="button" onClick={() => onMode(value)} style={{ border: 0, background: 'transparent', color: mode === value ? '#ff8a4b' : '#bbb', fontWeight: mode === value ? 800 : 400, textTransform: 'uppercase', fontSize: 13 }}>{value === 'reel' ? 'Réel' : value}</button>)}</div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around', width: '100%' }}>
         <button type="button" onClick={() => void openGallery()} aria-label="Ouvrir directement la photothèque"  style={{ width: 49, height: 49, border: '2px solid white', borderRadius: 10, background: '#282830', color: 'white', fontSize: 22 }}>▧</button>
-        <button type="button" onPointerDown={pressStart} onPointerUp={pressEnd} onPointerCancel={() => { holdingRef.current = false; if (recordingRef.current) recorderRef.current?.stop() }} onContextMenu={e => e.preventDefault()} aria-label="Appuyer pour une photo, maintenir pour filmer" style={{ width: 78, height: 78, borderRadius: '50%', border: '6px solid white', background: recording ? '#ff5b52' : '#fff', boxShadow: 'inset 0 0 0 5px #333', touchAction: 'none' }} />
+        <button type="button" onPointerDown={pressStart} onPointerUp={pressEnd} onPointerCancel={() => { holdingRef.current = false; if (recordingRef.current) recorderRef.current?.stop() }} onContextMenu={e => e.preventDefault()} disabled={nativePhotoBusy} aria-label="Appuyer pour une photo native, maintenir pour filmer" style={{ width: 78, height: 78, borderRadius: '50%', border: '6px solid white', background: recording ? '#ff5b52' : '#fff', boxShadow: 'inset 0 0 0 5px #333', touchAction: 'none' }} />
         <div style={{ width: 49 }} />
       </div>
-      <small style={{ color: '#aaa' }}>Appuie pour une photo · Maintiens pour filmer</small>
+      <small style={{ color: '#aaa' }}>Appuie pour une photo native · Maintiens pour filmer (vidéo web)</small>
       <input ref={galleryRef} type="file" accept="image/*,video/*" style={{ display: 'none' }} onChange={event => { const file = event.target.files?.[0]; if (file) onCapture(file); event.currentTarget.value = '' }} />
     </div>
   </div>
