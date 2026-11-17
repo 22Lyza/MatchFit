@@ -518,17 +518,31 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
   const [activeTool, setActiveTool] = useState<'text' | 'filter' | 'light' | null>(null)
   const [textColor, setTextColor] = useState('#ffffff')
   const [textSize, setTextSize] = useState(48)
-  const activePointers = useRef<Map<number, {x:number;y:number}>>(new Map())
-  const textPinchDistance = useRef<number | null>(null)
-  const textPinchStartSize = useRef(48)
-  const pinchHappened = useRef(false)
-  const updatePinch = () => {
-    const pointers = [...activePointers.current.values()]
-    if (pointers.length < 2) return
-    const distance = Math.hypot(pointers[0].x-pointers[1].x,pointers[0].y-pointers[1].y)
-    if (!textPinchDistance.current) { textPinchDistance.current = distance; textPinchStartSize.current = textSize; return }
-    if (Math.abs(distance-textPinchDistance.current)>3) pinchHappened.current = true
-    setTextSize(Math.max(12,Math.min(180,Math.round(textPinchStartSize.current*distance/textPinchDistance.current))))
+  const textElementRef = useRef<HTMLDivElement | null>(null)
+  const pinchRef = useRef<{ distance: number; size: number } | null>(null)
+  const suppressTextClick = useRef(false)
+  const textSizeRef = useRef(textSize)
+  textSizeRef.current = textSize
+  function textTouchStart(e: React.TouchEvent<HTMLDivElement>) {
+    if (e.touches.length !== 2) return
+    const a = e.touches[0], b = e.touches[1]
+    pinchRef.current = { distance: Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY), size: textSizeRef.current }
+    suppressTextClick.current = true
+  }
+  function textTouchMove(e: React.TouchEvent<HTMLDivElement>) {
+    if (e.touches.length !== 2 || !pinchRef.current) return
+    e.preventDefault()
+    const a = e.touches[0], b = e.touches[1]
+    const d = Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY)
+    const next = Math.max(12,Math.min(180,pinchRef.current.size * d / Math.max(1,pinchRef.current.distance)))
+    // Mise à jour DOM immédiate : aucun rerender React pendant le geste.
+    if (textElementRef.current) textElementRef.current.style.fontSize = `${next}px`
+    textSizeRef.current = next
+  }
+  function textTouchEnd(e: React.TouchEvent<HTMLDivElement>) {
+    if (e.touches.length >= 2 || !pinchRef.current) return
+    pinchRef.current = null
+    setTextSize(Math.round(textSizeRef.current))
   }
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -604,13 +618,11 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
     <div style={{ position: 'relative', flex: 1, minHeight: 0, background: '#101014', overflow: 'hidden' }}>
       {url && (isVideo ? <video src={url} playsInline controls style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> : <img src={url} alt="Photo à modifier" style={{ width: '100%', height: '100%', objectFit: 'contain', filter: cssFilter }} />)}
       {!!caption.trim() && !isVideo && <div
-        role="button" tabIndex={0} aria-label="Modifier le texte sur la photo"
-        onClick={() => { if (!pinchHappened.current) setActiveTool('text'); pinchHappened.current=false }}
+        ref={textElementRef}
+        role="button" tabIndex={0} aria-label="Toucher pour modifier le texte, pincer pour zoomer"
+        onClick={() => { if (suppressTextClick.current) { suppressTextClick.current=false; return } setActiveTool('text') }}
         onKeyDown={e => { if(e.key==='Enter' || e.key===' ') setActiveTool('text') }}
-        onPointerDown={e => { activePointers.current.set(e.pointerId,{x:e.clientX,y:e.clientY}); e.currentTarget.setPointerCapture(e.pointerId); updatePinch() }}
-        onPointerMove={e => { if(activePointers.current.has(e.pointerId)) { activePointers.current.set(e.pointerId,{x:e.clientX,y:e.clientY}); updatePinch() } }}
-        onPointerUp={e => { activePointers.current.delete(e.pointerId); if(activePointers.current.size<2) textPinchDistance.current=null }}
-        onPointerCancel={e => { activePointers.current.delete(e.pointerId); textPinchDistance.current=null }}
+        onTouchStart={textTouchStart} onTouchMove={textTouchMove} onTouchEnd={textTouchEnd} onTouchCancel={textTouchEnd}
         style={{ position:'absolute', top:'50%', left:'8%', right:'8%', transform:'translateY(-50%)', color:textColor, fontWeight:800, fontSize:`${textSize}px`, textAlign:'center', overflowWrap:'anywhere', textShadow:'0 2px 5px #000, 0 0 12px #000', touchAction:'none', userSelect:'none', cursor:'pointer', lineHeight:1.15 }}
       >{caption}</div>}
       {!!comment.trim() && !isVideo && <div style={{ position: 'absolute', bottom: 90, left: '7%', right: '7%', pointerEvents: 'none', fontSize: 19, fontWeight: 600, textShadow: '0 1px 5px #000, 0 0 8px #000', overflowWrap: 'anywhere' }}>{comment}</div>}
@@ -2555,7 +2567,7 @@ function App() {
       </header>
 
       {page === 'accueil' && (
-        <section className="home" onTouchStart={event => { homeSwipeStart.current = { x: event.touches[0].clientX, y: event.touches[0].clientY } }} onTouchEnd={event => { const start = homeSwipeStart.current; homeSwipeStart.current = null; if (!start || creationOpen || cameraOpen) return; const dx = event.changedTouches[0].clientX - start.x; const dy = event.changedTouches[0].clientY - start.y; if (dx > 90 && Math.abs(dx) > Math.abs(dy) * 1.5) openCamera('story') }}>
+        <section className="home" onTouchStart={event => { homeSwipeStart.current = { x: event.touches[0].clientX, y: event.touches[0].clientY } }} onTouchEnd={event => { const start = homeSwipeStart.current; homeSwipeStart.current = null; if (!start || creationOpen || cameraOpen) return; const dx = event.changedTouches[0].clientX - start.x; const dy = event.changedTouches[0].clientY - start.y; if (dx > 90 && Math.abs(dx) > Math.abs(dy) * 1.5) openCreation(null) }}>
           <div className="stories">
             <div className="story" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
               <div style={{ position: 'relative', width: 68, height: 68 }}>
@@ -2566,8 +2578,8 @@ function App() {
                 </div>
                 <button
                   type="button"
-                  aria-label="Ajouter une story"
-                  onClick={() => openCamera('story')}
+                  aria-label="Ouvrir la création : story, réel ou publication"
+                  onClick={() => openCreation(null)}
                   style={{ position: 'absolute', right: -2, bottom: 0, width: 27, height: 27,
                     borderRadius: '50%', background: '#ff6558', border: '3px solid #0b0c10',
                     color: '#fff', fontSize: 19, fontWeight: 700, lineHeight: '20px',
