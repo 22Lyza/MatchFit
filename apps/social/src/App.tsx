@@ -7,9 +7,19 @@ import { supabase } from './supabase'
 import { Capacitor, registerPlugin } from '@capacitor/core'
 import type { BackgroundGeolocationPlugin } from '@capacitor-community/background-geolocation'
 import { FilePicker } from '@capawesome/capacitor-file-picker'
-import { Camera, CameraResultType, CameraSource } from '@capacitor/camera'
 
 const BackgroundGeolocation = registerPlugin<BackgroundGeolocationPlugin>('BackgroundGeolocation')
+
+// Pont vers la caméra AVFoundation personnalisée (iOS).
+type MatchFitNativeCameraResult = {
+  path: string
+  name: string
+  mimeType: string
+}
+type MatchFitNativeCameraAPI = {
+  openCamera(): Promise<MatchFitNativeCameraResult>
+}
+const MatchFitNativeCamera = registerPlugin<MatchFitNativeCameraAPI>('MatchFitNativeCamera')
 
 // Carte OpenStreetMap interactive via Leaflet (chargement à la demande).
 // Aucun changement de dépendance npm n'est nécessaire.
@@ -668,25 +678,22 @@ function MatchFitCamera({ onCapture, onClose, mode, onMode }: {
     setNativePhotoBusy(true)
     setError('')
     try {
-      // La capture native iOS fournit une vraie photo, pas une image de l'aperçu vidéo.
-      const photo = await Camera.getPhoto({
-        source: CameraSource.Camera,
-        resultType: CameraResultType.Uri,
-        quality: 100,
-        allowEditing: false,
-        saveToGallery: false,
-        correctOrientation: true,
-      })
-      if (!photo.webPath) throw new Error('Photo inaccessible après la capture.')
-      const response = await fetch(photo.webPath)
+      const photo = await MatchFitNativeCamera.openCamera()
+      if (!photo.path) throw new Error('Photo inaccessible après la capture.')
+      const webPath = Capacitor.convertFileSrc(photo.path)
+      const response = await fetch(webPath)
       if (!response.ok) throw new Error('Impossible de lire la photo prise.')
       const blob = await response.blob()
-      const extension = photo.format === 'png' ? 'png' : 'jpeg'
-      const mime = blob.type || (extension === 'png' ? 'image/png' : 'image/jpeg')
-      onCapture(new File([blob], `matchfit-native-${Date.now()}.${extension === 'png' ? 'png' : 'jpg'}`, { type: mime }))
+      onCapture(new File(
+        [blob],
+        photo.name || `matchfit-native-${Date.now()}.jpg`,
+        { type: photo.mimeType || blob.type || 'image/jpeg' }
+      ))
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      if (!/cancel|dismiss|annul/i.test(message)) setError(message || 'Impossible de prendre la photo native.')
+      if (!/cancel|dismiss|annul/i.test(message)) {
+        setError(message || 'Impossible de prendre la photo native.')
+      }
     } finally {
       setNativePhotoBusy(false)
     }
