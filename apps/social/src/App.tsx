@@ -933,7 +933,7 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
           textPinchDistance.current = null
           if (activePointers.current.size === 0) gestureOwner.current = null
         }}
-        style={{ position:'absolute', top:'50%', left:'50%', width:'max-content', maxWidth:'84%', transform:`translate(calc(-50% + ${textOffset.x}px), calc(-50% + ${textOffset.y}px))`, color:textColor, fontWeight:800, fontSize:`${textSize}px`, textAlign:'center', overflowWrap:'anywhere', whiteSpace:'pre-wrap', textShadow:'0 2px 5px #000, 0 0 12px #000', touchAction:'none', userSelect:'none', cursor:'grab', zIndex: 3 }}>{caption}</div>}
+        style={{ position:'absolute', top: activeTool === 'text' ? '175px' : '50%', left:'50%', width:'max-content', maxWidth:'84%', transform: activeTool === 'text' ? 'translate(-50%, -50%)' : `translate(calc(-50% + ${textOffset.x}px), calc(-50% + ${textOffset.y}px))`, color:textColor, fontWeight:800, fontSize:`${textSize}px`, textAlign:'center', overflowWrap:'anywhere', whiteSpace:'pre-wrap', textShadow:'0 2px 5px #000, 0 0 12px #000', touchAction:'none', userSelect:'none', cursor:'grab', zIndex: 3 }}>{caption}</div>}
       {!!locationLabel.trim() && !isVideo && <div role="button" tabIndex={0} aria-label="Déplacer ou agrandir le lieu sur la photo" data-matchfit-location-layer="true"
         onClick={() => { if (!stickerMoved.current) setActiveTool('location') }}
         onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') setActiveTool('location') }}
