@@ -2537,7 +2537,29 @@ function App() {
   }
 
   return (
-    <div className="app">
+    <div className="app"
+      onTouchStartCapture={event => {
+        if (page !== 'accueil' || cameraOpen || creationOpen || editingFile || storyViewer || event.touches.length !== 1) {
+          homeSwipeStart.current = null
+          return
+        }
+        const touch = event.touches[0]
+        homeSwipeStart.current = { x: touch.clientX, y: touch.clientY }
+      }}
+      onTouchEndCapture={event => {
+        const start = homeSwipeStart.current
+        homeSwipeStart.current = null
+        if (!start || page !== 'accueil' || cameraOpen || creationOpen || editingFile || storyViewer) return
+        const touch = event.changedTouches[0]
+        if (!touch) return
+        const dx = touch.clientX - start.x
+        const dy = touch.clientY - start.y
+        if (dx > 75 && Math.abs(dx) > Math.abs(dy) * 1.3) {
+          openCamera('story', 'horizontal')
+        }
+      }}
+      onTouchCancelCapture={() => { homeSwipeStart.current = null }}
+    >
       <header className="topbar">
         <h1 className="logo">
           MATCH<span>FIT</span>
@@ -2560,7 +2582,7 @@ function App() {
       </header>
 
       {page === 'accueil' && (
-        <section className="home" onTouchStart={event => { homeSwipeStart.current = { x: event.touches[0].clientX, y: event.touches[0].clientY } }} onTouchEnd={event => { const start = homeSwipeStart.current; homeSwipeStart.current = null; if (!start || creationOpen || cameraOpen) return; const dx = event.changedTouches[0].clientX - start.x; const dy = event.changedTouches[0].clientY - start.y; if (dx > 90 && Math.abs(dx) > Math.abs(dy) * 1.5) openCamera('story', 'horizontal') }}>
+        <section className="home">
           <div className="stories">
             <div className="story" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
               <div style={{ position: 'relative', width: 68, height: 68 }}>
