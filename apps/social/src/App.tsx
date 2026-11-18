@@ -1416,6 +1416,9 @@ function App() {
   const [publishError, setPublishError] = useState('')
   const [postFile, setPostFile] = useState<File | null>(null)
   const [postCaption, setPostCaption] = useState('')
+  const [postLocation, setPostLocation] = useState('')
+  const [postLink, setPostLink] = useState('')
+  const [postAdvancedOpen, setPostAdvancedOpen] = useState(false)
   const [hideLikeCount, setHideLikeCount] = useState(false)
   const [commentsDisabled, setCommentsDisabled] = useState(false)
   const [postSettingsBusy, setPostSettingsBusy] = useState(false)
@@ -2040,7 +2043,7 @@ function App() {
       const mediaUrl = supabase.storage.from('social-media').getPublicUrl(path).data.publicUrl
       const { error: insertError } = await supabase.from('social_posts').insert({
         user_id: session.user.id,
-        caption: postCaption.trim(),
+        caption: [postCaption.trim(), postLocation.trim() ? `📍 ${postLocation.trim()}` : '', postLink.trim() ? `🔗 ${postLink.trim()}` : ''].filter(Boolean).join('\n'),
         media_url: mediaUrl,
         media_type: postFile.type === 'video/mp4' ? 'video' : 'image',
         hide_like_count: hideLikeCount,
@@ -2050,6 +2053,9 @@ function App() {
 
       setPostFile(null)
       setPostCaption('')
+      setPostLocation('')
+      setPostLink('')
+      setPostAdvancedOpen(false)
       setHideLikeCount(false)
       setCommentsDisabled(false)
       setCreationOpen(false)
@@ -2072,6 +2078,9 @@ function App() {
     setCreationType(null)
     setPostFile(null)
     setPostCaption('')
+    setPostLocation('')
+    setPostLink('')
+    setPostAdvancedOpen(false)
     setHideLikeCount(false)
     setCommentsDisabled(false)
     setPublishError('')
@@ -4222,48 +4231,49 @@ function App() {
                 </form>
               </div>
             ) : (
-              <form className="creation-form" onSubmit={publishPost}>
-                <p>Partage une photo ou une vidéo avec la communauté.</p>
-                <label htmlFor="creation-media">Photo ou vidéo (50 Mo maximum)</label>
-                <input
-                  id="creation-media"
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp,video/mp4"
-                  required
-                  onChange={event => setPostFile(event.target.files?.[0] ?? null)}
-                />
-                {postPreview && postFile && (
-                  postFile.type === 'video/mp4' ? (
-                    <video src={postPreview} controls playsInline style={{ width: '100%', maxHeight: 250, objectFit: 'contain' }} />
-                  ) : (
-                    <img src={postPreview} alt="Aperçu de la publication" style={{ width: '100%', maxHeight: 250, objectFit: 'contain' }} />
-                  )
-                )}
-                <textarea
-                  placeholder="Écris une légende..."
-                  rows={4}
-                  maxLength={2000}
-                  value={postCaption}
-                  onChange={event => setPostCaption(event.target.value)}
-                />
-                <div style={{ padding: '14px', background: '#24252e', borderRadius: 12, marginBottom: 16 }}>
-                  <h3 style={{ fontSize: 15, margin: '0 0 12px' }}>Confidentialité de la publication</h3>
-                  <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16, cursor: 'pointer' }}>
-                    <span><strong>Masquer le nombre de J’aime</strong><small style={{ display: 'block', color: '#a4a4ad', marginTop: 4 }}>Les autres ne verront pas le compteur.</small></span>
+              <form className="creation-form" onSubmit={publishPost} style={{ display: 'flex', flexDirection: 'column', gap: 0, padding: '0 16px 18px' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, padding: '16px 0 18px' }}>
+                  {postPreview && postFile ? (
+                    postFile.type.startsWith('video/') ? <video src={postPreview} muted playsInline controls style={{ width: 116, height: 156, flexShrink: 0, borderRadius: 12, objectFit: 'cover', background: '#111' }} />
+                    : <img src={postPreview} alt="Aperçu de la publication" style={{ width: 116, height: 156, flexShrink: 0, borderRadius: 12, objectFit: 'cover' }} />
+                  ) : <label htmlFor="creation-media" style={{ width: 116, height: 156, flexShrink: 0, display: 'grid', placeItems: 'center', background: '#24252e', borderRadius: 12, color: '#aaa', fontSize: 13, textAlign: 'center' }}>Choisir un média</label>}
+                  <textarea aria-label="Légende" placeholder="Ajouter une légende…" rows={6} maxLength={2000} value={postCaption} onChange={event => setPostCaption(event.target.value)} style={{ flex: 1, minWidth: 0, resize: 'vertical', background: 'transparent', border: 0, outline: 'none', color: '#fff', fontSize: 16, padding: '4px 0' }} />
+                </div>
+                <input id="creation-media" type="file" accept="image/jpeg,image/png,image/webp,video/mp4" onChange={event => setPostFile(event.target.files?.[0] ?? null)} style={{ marginBottom: 16, fontSize: 13, maxWidth: '100%' }} />
+                <div style={{ borderTop: '1px solid #30313b' }} />
+                <div style={{ padding: '16px 0', color: '#a4a4ad', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}><span>♫ Ajouter un audio</span><small>Prochainement</small></div>
+                <div style={{ borderTop: '1px solid #30313b' }} />
+                <div style={{ padding: '16px 0', color: '#a4a4ad', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}><span>♙ Identifier des personnes</span><small>Prochainement</small></div>
+                <div style={{ borderTop: '1px solid #30313b' }} />
+                <label style={{ display: 'grid', gap: 8, padding: '16px 0', color: '#fff', fontSize: 15 }}>
+                  <span>⌖ Ajouter un lieu</span>
+                  <input value={postLocation} onChange={event => setPostLocation(event.target.value)} maxLength={120} placeholder="Ex. Les Diablerets" style={{ ...fieldStyle, margin: 0 }} />
+                  <small style={{ color: '#a4a4ad' }}>Le lieu sera ajouté à la légende de la publication.</small>
+                </label>
+                <div style={{ borderTop: '1px solid #30313b' }} />
+                <label style={{ display: 'grid', gap: 8, padding: '16px 0', color: '#fff', fontSize: 15 }}>
+                  <span>↗ Ajouter un lien</span>
+                  <input value={postLink} onChange={event => setPostLink(event.target.value)} maxLength={500} placeholder="https://…" inputMode="url" style={{ ...fieldStyle, margin: 0 }} />
+                  <small style={{ color: '#a4a4ad' }}>Le lien sera ajouté à la légende (pas encore cliquable).</small>
+                </label>
+                <div style={{ borderTop: '1px solid #30313b' }} />
+                <button type="button" onClick={() => setPostAdvancedOpen(value => !value)} aria-expanded={postAdvancedOpen} style={{ padding: '18px 0', display: 'flex', width: '100%', alignItems: 'center', justifyContent: 'space-between', border: 0, background: 'transparent', color: '#fff', fontSize: 16, textAlign: 'left' }}><span>⚙ Plus d’options</span><span>{postAdvancedOpen ? '⌃' : '›'}</span></button>
+                {postAdvancedOpen && <div style={{ padding: '4px 12px 14px', background: '#24252e', borderRadius: 12, marginBottom: 12 }}>
+                  <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '12px 0', cursor: 'pointer' }}>
+                    <span><strong>Masquer le nombre de J’aime</strong><small style={{ display: 'block', color: '#a4a4ad', marginTop: 4 }}>Le compteur ne sera pas affiché aux autres.</small></span>
                     <input type="checkbox" checked={hideLikeCount} onChange={event => setHideLikeCount(event.target.checked)} disabled={publishBusy} />
                   </label>
-                  <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+                  <div style={{ borderTop: '1px solid #383943' }} />
+                  <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '12px 0', cursor: 'pointer' }}>
                     <span><strong>Désactiver les commentaires</strong><small style={{ display: 'block', color: '#a4a4ad', marginTop: 4 }}>Personne ne pourra commenter.</small></span>
                     <input type="checkbox" checked={commentsDisabled} onChange={event => setCommentsDisabled(event.target.checked)} disabled={publishBusy} />
                   </label>
-                </div>
+                </div>}
                 {publishError && <p role="alert" style={{ color: '#ff7777', fontSize: 13 }}>{publishError}</p>}
-                <button className="publish-button" type="submit" disabled={publishBusy || !postFile}>
-                  {publishBusy ? 'Publication en cours...' : 'Publier'}
+                <button className="publish-button" type="submit" disabled={publishBusy || !postFile} style={{ ...primaryStyle, marginTop: 12, fontSize: 17 }}>
+                  {publishBusy ? 'Publication en cours…' : 'Partager'}
                 </button>
-                <button className="creation-back" type="button" disabled={publishBusy} onClick={() => setCreationType(null)}>
-                  Retour aux choix
-                </button>
+                <button className="creation-back" type="button" disabled={publishBusy} onClick={() => setCreationType(null)} style={{ marginTop: 12 }}>Retour aux choix</button>
               </form>
             )}
           </div>
