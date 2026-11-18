@@ -4265,7 +4265,7 @@ function App() {
                     postFile.type.startsWith('video/') ? <video src={postPreview} muted playsInline controls style={{ width: 116, height: 156, flexShrink: 0, borderRadius: 12, objectFit: 'cover', background: '#111' }} />
                     : <img src={postPreview} alt="Aperçu de la publication" style={{ width: 116, height: 156, flexShrink: 0, borderRadius: 12, objectFit: 'cover', filter: postFilter === 'contrast' ? 'contrast(1.22) saturate(1.15)' : postFilter === 'warm' ? 'sepia(.2) saturate(1.25)' : postFilter === 'mono' ? 'grayscale(1)' : 'none' }} />
                   ) : <div style={{ width: 116, height: 156, flexShrink: 0, display: 'grid', placeItems: 'center', background: '#24252e', borderRadius: 12, color: '#aaa', fontSize: 13, textAlign: 'center' }}>Aucun média sélectionné</div>}
-                  <textarea aria-label="Légende" placeholder="Ajouter une légende…" rows={6} maxLength={2000} value={postCaption} onChange={event => setPostCaption(event.target.value)} style={{ flex: 1, minWidth: 0, resize: 'vertical', background: 'transparent', border: 0, outline: 'none', color: '#fff', fontSize: 16, padding: '4px 0' }} />
+                  <textarea aria-label="Commentaire de la publication ou du réel" placeholder="Écris un commentaire sur ta publication ou ton réel…" rows={6} maxLength={2000} value={postCaption} onChange={event => setPostCaption(event.target.value)} style={{ flex: 1, minWidth: 0, resize: 'vertical', background: 'transparent', border: 0, outline: 'none', color: '#fff', fontSize: 16, padding: '4px 0' }} />
                 </div>
 
                 {postFile && !postFile.type.startsWith('video/') && <div style={{ padding: '12px 0 16px', display: 'grid', gap: 10 }}>
@@ -4284,13 +4284,13 @@ function App() {
                 <label style={{ display: 'grid', gap: 8, padding: '16px 0', color: '#fff', fontSize: 15 }}>
                   <span>⌖ Ajouter un lieu</span>
                   <input value={postLocation} onChange={event => setPostLocation(event.target.value)} maxLength={120} placeholder="Ex. Les Diablerets" style={{ ...fieldStyle, margin: 0 }} />
-                  <small style={{ color: '#a4a4ad' }}>Le lieu sera ajouté à la légende de la publication.</small>
+                  <small style={{ color: '#a4a4ad' }}>Le lieu sera ajouté au commentaire de la publication.</small>
                 </label>
                 <div style={{ borderTop: '1px solid #30313b' }} />
                 <label style={{ display: 'grid', gap: 8, padding: '16px 0', color: '#fff', fontSize: 15 }}>
                   <span>↗ Ajouter un lien</span>
                   <input value={postLink} onChange={event => setPostLink(event.target.value)} maxLength={500} placeholder="https://…" inputMode="url" style={{ ...fieldStyle, margin: 0 }} />
-                  <small style={{ color: '#a4a4ad' }}>Le lien sera ajouté à la légende (pas encore cliquable).</small>
+                  <small style={{ color: '#a4a4ad' }}>Le lien sera ajouté au commentaire (pas encore cliquable).</small>
                 </label>
                 <div style={{ borderTop: '1px solid #30313b' }} />
                 <button type="button" onClick={() => setPostAdvancedOpen(value => !value)} aria-expanded={postAdvancedOpen} style={{ padding: '18px 0', display: 'flex', width: '100%', alignItems: 'center', justifyContent: 'space-between', border: 0, background: 'transparent', color: '#fff', fontSize: 16, textAlign: 'left' }}><span>⚙ Plus d’options</span><span>{postAdvancedOpen ? '⌃' : '›'}</span></button>
