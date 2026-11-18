@@ -1382,7 +1382,7 @@ function App() {
 
   const [page, setPage] = useState<Page>('accueil')
   // Conversations de démonstration : uniquement en mémoire, jamais envoyées à Supabase.
-  const [demoReplies, setDemoReplies] = useState<Record<string, { body: string; created_at: string }[]>>({})
+  const [demoMessageReplies, setDemoMessageReplies] = useState<Record<string, { body: string; created_at: string }[]>>({})
   const [dmPeople, setDmPeople] = useState<SocialProfile[]>([])
   const [dmMessages, setDmMessages] = useState<DirectMessage[]>([])
   const [dmSelected, setDmSelected] = useState<string | null>(null)
@@ -3462,7 +3462,7 @@ function App() {
               <small style={{ display: 'block', color: '#a4a4ad', marginBottom: 8 }}>Conversations fictives · Démonstration</small>
               {demoConversations.filter(person => [person.first_name, person.username, person.city].some(value => value.toLowerCase().includes(dmSearch.toLowerCase()))).map(person => <button key={person.user_id} type="button" onClick={() => { setDmSelected(person.user_id); setDmDraft(''); setDmError('') }} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '13px 4px', border: 0, borderBottom: '1px solid #292a33', background: 'transparent', color: '#fff', textAlign: 'left', cursor: 'pointer' }}>
                 <span style={{ width: 50, height: 50, borderRadius: '50%', background: '#453341', display: 'grid', placeItems: 'center', fontSize: 21 }}>{person.first_name[0]}</span>
-                <span style={{ flex: 1, minWidth: 0 }}><strong style={{ display: 'block' }}>@{person.username}</strong><small style={{ display: 'block', color: '#a4a4ad', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', marginTop: 5 }}>{demoReplies[person.user_id]?.at(-1)?.body ?? person.preview}</small></span>
+                <span style={{ flex: 1, minWidth: 0 }}><strong style={{ display: 'block' }}>@{person.username}</strong><small style={{ display: 'block', color: '#a4a4ad', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', marginTop: 5 }}>{demoMessageReplies[person.user_id]?.[demoMessageReplies[person.user_id].length - 1]?.body ?? person.preview}</small></span>
                 <small style={{ color: '#a4a4ad' }}>{person.time}</small>
               </button>)}
             </div> : null}
@@ -3488,14 +3488,14 @@ function App() {
             <div style={{ minHeight: '45vh', maxHeight: '60vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, padding: '18px 0' }}>
               {!isDemoDm(dmSelected) && dmThread.length === 0 && <p style={{ textAlign: 'center', color: '#aaa' }}>Envoie ton premier message 👋</p>}
               {isDemoDm(dmSelected) && <small style={{ textAlign: 'center', color: '#a4a4ad' }}>Conversation fictive · messages non envoyés</small>}
-              {isDemoDm(dmSelected) && [...(demoInitialMessages[dmSelected!] ?? []).map((message, i) => ({ ...message, id: `initial-${i}` })), ...(demoReplies[dmSelected!] ?? []).map((message, i) => ({ ...message, mine: true, time: new Date(message.created_at).toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' }), id: `reply-${i}` }))].map(message => <div key={message.id} style={{ alignSelf: message.mine ? 'flex-end' : 'flex-start', maxWidth: '82%', background: message.mine ? '#ff7754' : '#292a33', borderRadius: 17, padding: '10px 13px', overflowWrap: 'anywhere' }}><div style={{ whiteSpace: 'pre-wrap', fontSize: 14 }}>{message.body}</div><small style={{ display: 'block', marginTop: 4, opacity: .75, fontSize: 10, textAlign: 'right' }}>{message.time}</small></div>)}
+              {isDemoDm(dmSelected) && [...(demoInitialMessages[dmSelected!] ?? []).map((message, i) => ({ ...message, id: `initial-${i}` })), ...(demoMessageReplies[dmSelected!] ?? []).map((message, i) => ({ ...message, mine: true, time: new Date(message.created_at).toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' }), id: `reply-${i}` }))].map(message => <div key={message.id} style={{ alignSelf: message.mine ? 'flex-end' : 'flex-start', maxWidth: '82%', background: message.mine ? '#ff7754' : '#292a33', borderRadius: 17, padding: '10px 13px', overflowWrap: 'anywhere' }}><div style={{ whiteSpace: 'pre-wrap', fontSize: 14 }}>{message.body}</div><small style={{ display: 'block', marginTop: 4, opacity: .75, fontSize: 10, textAlign: 'right' }}>{message.time}</small></div>)}
               {!isDemoDm(dmSelected) && dmThread.map(message => <div key={message.id} style={{ alignSelf: message.sender_id === dmMe ? 'flex-end' : 'flex-start', maxWidth: '82%', background: message.sender_id === dmMe ? '#ff7754' : '#292a33', borderRadius: 17, padding: '10px 13px', overflowWrap: 'anywhere' }}>
                 <div style={{ whiteSpace: 'pre-wrap', fontSize: 14 }}>{message.body}</div>
                 <small style={{ display: 'block', marginTop: 4, opacity: .75, fontSize: 10, textAlign: 'right' }}>{new Date(message.created_at).toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' })}</small>
               </div>)}
               <div ref={dmBottomRef} />
             </div>
-            <form onSubmit={e => { e.preventDefault(); if (isDemoDm(dmSelected)) { const body = dmDraft.trim(); if (!body || !dmSelected) return; setDemoReplies(prev => ({ ...prev, [dmSelected]: [...(prev[dmSelected] ?? []), { body, created_at: new Date().toISOString() }] })); setDmDraft(''); return } void sendDirectMessage() }} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <form onSubmit={e => { e.preventDefault(); if (isDemoDm(dmSelected)) { const body = dmDraft.trim(); if (!body || !dmSelected) return; setDemoMessageReplies(prev => ({ ...prev, [dmSelected]: [...(prev[dmSelected] ?? []), { body, created_at: new Date().toISOString() }] })); setDmDraft(''); return } void sendDirectMessage() }} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <input aria-label="Écrire un message" placeholder="Écris un message…" maxLength={2000} value={dmDraft} onChange={e => setDmDraft(e.target.value)}
                 style={{ ...fieldStyle, flex: 1, minWidth: 0, margin: 0 }} />
               <button type="submit" disabled={!dmDraft.trim() || dmBusy} style={{ ...primaryStyle, width: 'auto', padding: '13px 16px', opacity: !dmDraft.trim() || dmBusy ? .5 : 1 }}>{dmBusy ? '…' : 'Envoyer'}</button>
