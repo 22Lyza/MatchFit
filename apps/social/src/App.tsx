@@ -1,7 +1,7 @@
 
 
 import { useEffect, useRef, useState } from 'react'
-import type { CSSProperties, FormEvent } from 'react'
+import type { CSSProperties, FormEvent, ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 import { Capacitor, registerPlugin } from '@capacitor/core'
@@ -1367,6 +1367,31 @@ function MatchFitCamera({ onCapture, onClose, mode, onMode }: {
   </div>
 }
 
+// Ligne MatchFit : seul le geste de glissement s'inspire de Messages sur iOS.
+function MatchFitSwipeConversation({ id, children, unread, onOpen, onToggleUnread, onDelete, onReport }: {
+  id: string; children: ReactNode; unread: boolean; onOpen: () => void;
+  onToggleUnread: () => void; onDelete: () => void; onReport: () => void
+}) {
+  const [opened, setOpened] = useState(false)
+  const touchStart = useRef<{ x: number; y: number } | null>(null)
+  return <div data-conversation={id} style={{ position: 'relative', overflow: 'hidden', borderBottom: '1px solid #292a33' }}>
+    <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, display: 'flex', width: 216 }}>
+      <button type="button" onClick={() => { onToggleUnread(); setOpened(false) }} style={{ flex: 1, border: 0, background: '#5968d9', color: '#fff', fontSize: 12, fontWeight: 700 }}>{unread ? 'Lu' : 'Non lu'}</button>
+      <button type="button" onClick={() => { onReport(); setOpened(false) }} style={{ flex: 1, border: 0, background: '#555665', color: '#fff', fontSize: 12, fontWeight: 700 }}>Signaler</button>
+      <button type="button" onClick={() => { onDelete(); setOpened(false) }} style={{ flex: 1, border: 0, background: '#d9434b', color: '#fff', fontSize: 12, fontWeight: 700 }}>Supprimer</button>
+    </div>
+    <div onTouchStart={e => { const t = e.touches[0]; touchStart.current = { x: t.clientX, y: t.clientY } }}
+      onTouchEnd={e => { const start = touchStart.current; touchStart.current = null; if (!start) return; const t = e.changedTouches[0]; const dx = t.clientX - start.x; if (Math.abs(dx) > 42 && Math.abs(dx) > Math.abs(t.clientY - start.y) * 1.3) setOpened(dx < 0) }}
+      onTouchCancel={() => { touchStart.current = null }}
+      style={{ position: 'relative', background: '#0b0c10', transform: opened ? 'translateX(-216px)' : 'translateX(0)', transition: 'transform 180ms ease', touchAction: 'pan-y' }}>
+      <button type="button" onClick={() => { if (opened) setOpened(false); else onOpen() }} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '13px 4px', border: 0, background: 'transparent', color: '#fff', textAlign: 'left', cursor: 'pointer' }}>
+        {children}
+        {unread && <span aria-label="Message non lu" title="Message non lu" style={{ flexShrink: 0, width: 9, height: 9, borderRadius: '50%', background: '#218bff', marginLeft: 2 }} />}
+      </button>
+    </div>
+  </div>
+}
+
 function App() {
   useStableIphoneViewport()
   const [session, setSession] = useState<Session | null>(null)
@@ -1391,6 +1416,37 @@ function App() {
   const [dmBusy, setDmBusy] = useState(false)
   const [dmLoading, setDmLoading] = useState(false)
   const [dmError, setDmError] = useState('')
+  // Statuts et conversations masquées conservés sur cet appareil.
+  const [dmReadAt, setDmReadAt] = useState<Record<string, string>>(() => {
+    try { return JSON.parse(localStorage.getItem('mf.dm.readAt.v1') || '{}') } catch { return {} }
+  })
+  const [dmHidden, setDmHidden] = useState<Record<string, string>>(() => {
+    try { return JSON.parse(localStorage.getItem('mf.dm.hidden.v1') || '{}') } catch { return {} }
+  })
+  const [dmReportTarget, setDmReportTarget] = useState<string | null>(null)
+  const [dmReportReason, setDmReportReason] = useState('Spam')
+  const [dmReportBusy, setDmReportBusy] = useState(false)
+  const [dmReportFeedback, setDmReportFeedback] = useState('')
+  useEffect(() => { localStorage.setItem('mf.dm.readAt.v1', JSON.stringify(dmReadAt)) }, [dmReadAt])
+  useEffect(() => { localStorage.setItem('mf.dm.hidden.v1', JSON.stringify(dmHidden)) }, [dmHidden])
+  function openMatchFitDm(id: string) {
+    setDmSelected(id); setDmDraft(''); setDmError('')
+    setDmReadAt(prev => ({ ...prev, [id]: new Date().toISOString() }))
+  }
+  function toggleMatchFitDmUnread(id: string) {
+    setDmReadAt(prev => ({ ...prev, [id]: prev[id] === '' ? new Date().toISOString() : '' }))
+  }
+  function hideMatchFitDm(id: string) {
+    if (!window.confirm('Retirer cette conversation de ta liste ? Les messages de l’autre personne ne seront pas effacés.')) return
+    setDmHidden(prev => ({ ...prev, [id]: new Date().toISOString() }))
+  }
+  function isMatchFitDmUnread(id: string, lastIncoming?: string) {
+    const read = dmReadAt[id]
+    if (read === '') return true
+    if (!read) return !!id.startsWith('demo-dm-') || !!lastIncoming
+    return !!lastIncoming && lastIncoming > read
+  }
+
   const dmBottomRef = useRef<HTMLDivElement | null>(null)
 
   const [settingsSection, setSettingsSection] = useState<'accueil' | 'archives' | 'confidentialite' | 'securite' | 'conditions' | 'donnees'>('accueil')
@@ -3460,25 +3516,47 @@ function App() {
               onChange={e => setDmSearch(e.target.value)} style={fieldStyle} />
             {!dmSearch.trim() || demoConversations.some(person => [person.first_name, person.username, person.city].some(value => value.toLowerCase().includes(dmSearch.toLowerCase()))) ? <div style={{ marginBottom: 12 }}>
               <small style={{ display: 'block', color: '#a4a4ad', marginBottom: 8 }}>Conversations fictives · Démonstration</small>
-              {demoConversations.filter(person => [person.first_name, person.username, person.city].some(value => value.toLowerCase().includes(dmSearch.toLowerCase()))).map(person => <button key={person.user_id} type="button" onClick={() => { setDmSelected(person.user_id); setDmDraft(''); setDmError('') }} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '13px 4px', border: 0, borderBottom: '1px solid #292a33', background: 'transparent', color: '#fff', textAlign: 'left', cursor: 'pointer' }}>
-                <span style={{ width: 50, height: 50, borderRadius: '50%', background: '#453341', display: 'grid', placeItems: 'center', fontSize: 21 }}>{person.first_name[0]}</span>
-                <span style={{ flex: 1, minWidth: 0 }}><strong style={{ display: 'block' }}>@{person.username}</strong><small style={{ display: 'block', color: '#a4a4ad', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', marginTop: 5 }}>{demoMessageReplies[person.user_id]?.[demoMessageReplies[person.user_id].length - 1]?.body ?? person.preview}</small></span>
-                <small style={{ color: '#a4a4ad' }}>{person.time}</small>
-              </button>)}
+              {demoConversations.filter(person => !dmHidden[person.user_id] && [person.first_name, person.username, person.city].some(value => value.toLowerCase().includes(dmSearch.toLowerCase()))).map(person =>
+                <MatchFitSwipeConversation key={person.user_id} id={person.user_id} unread={isMatchFitDmUnread(person.user_id)}
+                  onOpen={() => openMatchFitDm(person.user_id)} onToggleUnread={() => toggleMatchFitDmUnread(person.user_id)}
+                  onDelete={() => hideMatchFitDm(person.user_id)} onReport={() => { setDmReportTarget(person.user_id); setDmReportFeedback('') }}>
+                  <span style={{ width: 50, height: 50, borderRadius: '50%', background: '#453341', display: 'grid', placeItems: 'center', fontSize: 21 }}>{person.first_name[0]}</span>
+                  <span style={{ flex: 1, minWidth: 0 }}><strong style={{ display: 'block' }}>@{person.username}</strong><small style={{ display: 'block', color: '#a4a4ad', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', marginTop: 5 }}>{demoMessageReplies[person.user_id]?.[demoMessageReplies[person.user_id].length - 1]?.body ?? person.preview}</small></span>
+                  <small style={{ color: '#a4a4ad' }}>{person.time}</small>
+                </MatchFitSwipeConversation>)}
             </div> : null}
             {dmLoading && <p style={{ color: '#aaa' }}>Chargement des conversations…</p>}
             {dmSortedPeople.length === 0 && !dmLoading && dmSearch.trim() && !demoConversations.some(person => [person.first_name, person.username, person.city].some(value => value.toLowerCase().includes(dmSearch.toLowerCase()))) && <p style={{ color: '#aaa' }}>Aucun sportif trouvé.</p>}
-            {dmSortedPeople.map(person => {
+            {dmSortedPeople.filter(person => !dmHidden[person.user_id] || dmMessages.some(m => (m.sender_id === person.user_id && m.created_at > dmHidden[person.user_id]))).map(person => {
               const last = [...dmMessages].reverse().find(m => m.sender_id === person.user_id || m.recipient_id === person.user_id)
-              return <button key={person.user_id} type="button" onClick={() => { setDmSelected(person.user_id); setDmDraft(''); setDmError('') }}
-                style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '13px 4px', border: 0, borderBottom: '1px solid #292a33', background: 'transparent', color: '#fff', textAlign: 'left', cursor: 'pointer' }}>
+              const lastIncoming = [...dmMessages].reverse().find(m => m.sender_id === person.user_id)?.created_at
+              return <MatchFitSwipeConversation key={person.user_id} id={person.user_id} unread={isMatchFitDmUnread(person.user_id, lastIncoming)}
+                onOpen={() => openMatchFitDm(person.user_id)} onToggleUnread={() => toggleMatchFitDmUnread(person.user_id)}
+                onDelete={() => hideMatchFitDm(person.user_id)} onReport={() => { setDmReportTarget(person.user_id); setDmReportFeedback('') }}>
                 {person.avatar_url ? <img src={person.avatar_url} alt="" style={{ width: 50, height: 50, borderRadius: '50%', objectFit: 'cover' }} /> :
                   <span style={{ width: 50, height: 50, borderRadius: '50%', background: '#343541', display: 'grid', placeItems: 'center', fontSize: 22 }}>{(person.first_name || '?').charAt(0).toUpperCase()}</span>}
                 <span style={{ flex: 1, minWidth: 0 }}><strong style={{ display: 'block' }}>{person.username ? `@${person.username}` : person.first_name}</strong>
                   <small style={{ display: 'block', color: '#a4a4ad', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', marginTop: 5 }}>{last ? `${last.sender_id === dmMe ? 'Vous : ' : ''}${last.body}` : 'Commencer une conversation'}</small></span>
                 <span style={{ color: '#a4a4ad' }}>›</span>
-              </button>
+              </MatchFitSwipeConversation>
             })}
+            {dmReportFeedback && <p role="status" style={{ color: '#aaa', fontSize: 13 }}>{dmReportFeedback}</p>}
+            {dmReportTarget && <div role="dialog" aria-modal="true" aria-label="Signaler une conversation" style={{ position: 'fixed', inset: 0, zIndex: 6000, background: '#000c', display: 'grid', placeItems: 'center', padding: 22 }}>
+              <div style={{ background: '#1b1c24', padding: 22, borderRadius: 16, width: '100%', maxWidth: 360 }}>
+                <h3 style={{ marginTop: 0 }}>Signaler cette conversation</h3>
+                <label>Motif<select value={dmReportReason} onChange={e => setDmReportReason(e.target.value)} style={fieldStyle}>{['Spam', 'Harcèlement', 'Contenu inapproprié', 'Faux profil', 'Autre'].map(reason => <option key={reason}>{reason}</option>)}</select></label>
+                <button type="button" disabled={dmReportBusy} style={primaryStyle} onClick={async () => {
+                  if (!dmReportTarget) return
+                  if (isDemoDm(dmReportTarget)) { setDmReportFeedback('Conversation fictive : aucun signalement transmis.'); setDmReportTarget(null); return }
+                  setDmReportBusy(true)
+                  const { error } = await supabase.from('social_message_reports').insert({ reporter_id: dmMe, reported_user_id: dmReportTarget, reason: dmReportReason })
+                  setDmReportBusy(false)
+                  setDmReportFeedback(error ? `Signalement non transmis : ${error.message}` : 'Signalement envoyé.')
+                  if (!error) setDmReportTarget(null)
+                }}>{dmReportBusy ? 'Envoi…' : 'Confirmer le signalement'}</button>
+                <button type="button" style={{ ...linkStyle, width: '100%' }} onClick={() => setDmReportTarget(null)}>Annuler</button>
+              </div>
+            </div>}
           </> : <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingBottom: 14, borderBottom: '1px solid #343541' }}>
               <button type="button" onClick={() => { setDmSelected(null); setDmError('') }} style={{ background: 'none', border: 0, color: '#fff', fontSize: 26, cursor: 'pointer' }} aria-label="Retour aux conversations">‹</button>
