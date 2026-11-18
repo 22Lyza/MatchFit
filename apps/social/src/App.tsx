@@ -728,6 +728,8 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
       <div ref={photoFrame} style={{ position: 'absolute', inset: 0, overflow: 'hidden', touchAction: isVideo ? 'auto' : 'none' }}
         onPointerDown={e => {
           if (isVideo) return
+          // Les étiquettes capturent leurs propres gestes, pas la photo.
+          if ((e.target as HTMLElement).closest('[data-matchfit-time-layer], [data-matchfit-location-layer]')) return
           // Le deuxième doigt peut toucher la photo en dehors de la petite étiquette :
           // il appartient quand même au sticker déjà sélectionné, jamais à la photo.
           if (gestureOwner.current === 'location' || gestureOwner.current === 'time') {
@@ -1012,7 +1014,11 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
         onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') setActiveTool('time') }}
         onPointerDown={e => {
           e.stopPropagation()
-          if (gestureOwner.current && gestureOwner.current !== 'time') return
+          // Le sticker heure prend toujours la priorité sur le cadrage photo.
+          // Sur iOS, un ancien pointer photo peut rester capturé après un geste.
+          if (gestureOwner.current === 'text' || gestureOwner.current === 'location') return
+          photoPointers.current.clear()
+          photoGesture.current = null
           gestureOwner.current = 'time'
           e.currentTarget.setPointerCapture(e.pointerId)
           timePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
@@ -1073,7 +1079,7 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
             gestureOwner.current = null; setDraggingSticker(null); setOverTrash(false)
           }
         }}
-        style={{ position: 'absolute', left: '50%', top: '50%', transform: `translate(calc(-50% + ${timeOffset.x}px), calc(-50% + ${timeOffset.y}px))`, background: '#0009', border: '1px solid #ffffff55', borderRadius: 18, color: '#fff', padding: '9px 14px', fontSize: timeSize, fontWeight: 700, whiteSpace: 'nowrap', maxWidth: '85%', overflow: 'hidden', textOverflow: 'ellipsis', touchAction: 'none', userSelect: 'none', zIndex: 2 }}>{timeLabel}</div>}
+        style={{ position: 'absolute', left: '50%', top: '50%', transform: `translate(calc(-50% + ${timeOffset.x}px), calc(-50% + ${timeOffset.y}px))`, background: '#0009', border: '1px solid #ffffff55', borderRadius: 18, color: '#fff', padding: '9px 14px', fontSize: timeSize, fontWeight: 700, whiteSpace: 'nowrap', maxWidth: '85%', overflow: 'hidden', textOverflow: 'ellipsis', touchAction: 'none', userSelect: 'none', zIndex: 4 }}>{timeLabel}</div>}
       {draggingSticker && !isVideo && <div aria-label="Glisser ici pour supprimer" style={{ position: 'absolute', left: '50%', bottom: 58, transform: 'translateX(-50%)', width: 72, height: 72, display: 'grid', placeItems: 'center', borderRadius: 24, background: overTrash ? '#ff555544' : '#ffffff18', border: overTrash ? '2px solid #ff7474' : '1px solid #ffffff55', backdropFilter: 'blur(5px)', pointerEvents: 'none', zIndex: 6, fontSize: 30, color: '#fff' }}>🗑</div>}
       {!!comment.trim() && !isVideo && <div style={{ position: 'absolute', bottom: 90, left: '7%', right: '7%', pointerEvents: 'none', fontSize: 19, fontWeight: 600, textShadow: '0 1px 5px #000, 0 0 8px #000', overflowWrap: 'anywhere' }}>{comment}</div>}
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(#000a,transparent)' }}>
