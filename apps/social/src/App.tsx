@@ -390,6 +390,8 @@ const discoverDemos: SocialPost[] = [
 ]
 
 type DirectMessage = { id: string; sender_id: string; recipient_id: string; body: string; created_at: string }
+const DM_IMAGE_PREFIX = '__matchfit_dm_image__:'
+const dmImagePath = (body: string) => body.startsWith(DM_IMAGE_PREFIX) ? body.slice(DM_IMAGE_PREFIX.length) : null
 
 type StoredComment = { id: string; post_id: string; user_id: string; content: string; created_at: string; parent_id: string | null }
 type DisplayComment = { id: string; name: string; text: string; demo: boolean; parentId: string | null }
@@ -1413,6 +1415,11 @@ function App() {
   const [dmSelected, setDmSelected] = useState<string | null>(null)
   const [dmSearch, setDmSearch] = useState('')
   const [dmDraft, setDmDraft] = useState('')
+  const [dmPhoto, setDmPhoto] = useState<File | null>(null)
+  const [dmPhotoPreview, setDmPhotoPreview] = useState('')
+  const [dmImageUrls, setDmImageUrls] = useState<Record<string, string>>({})
+  const [demoPhotoMessages, setDemoPhotoMessages] = useState<Record<string, { url: string; created_at: string }[]>>({})
+  const dmPhotoInput = useRef<HTMLInputElement | null>(null)
   const [dmBusy, setDmBusy] = useState(false)
   const [dmLoading, setDmLoading] = useState(false)
   const [dmError, setDmError] = useState('')
@@ -1430,7 +1437,7 @@ function App() {
   useEffect(() => { localStorage.setItem('mf.dm.readAt.v1', JSON.stringify(dmReadAt)) }, [dmReadAt])
   useEffect(() => { localStorage.setItem('mf.dm.hidden.v1', JSON.stringify(dmHidden)) }, [dmHidden])
   function openMatchFitDm(id: string) {
-    setDmSelected(id); setDmDraft(''); setDmError('')
+    setDmSelected(id); setDmDraft(''); setDmPhoto(null); setDmError('')
     setDmReadAt(prev => ({ ...prev, [id]: new Date().toISOString() }))
   }
   function toggleMatchFitDmUnread(id: string) {
@@ -1913,6 +1920,58 @@ function App() {
   }, [session?.user.id])
 
   useEffect(() => { if (page === 'messages' && dmSelected) dmBottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [page, dmSelected, dmMessages.length])
+
+  useEffect(() => {
+    if (!dmPhoto) { setDmPhotoPreview(''); return }
+    const url = URL.createObjectURL(dmPhoto)
+    setDmPhotoPreview(url)
+    return () => URL.revokeObjectURL(url)
+  }, [dmPhoto])
+
+  useEffect(() => {
+    const paths = dmMessages.map(message => dmImagePath(message.body)).filter((path): path is string => !!path)
+    const missing = [...new Set(paths)].filter(path => !dmImageUrls[path])
+    if (!missing.length) return
+    let cancelled = false
+    void Promise.all(missing.map(async path => {
+      const { data, error } = await supabase.storage.from('social-dm-photos').createSignedUrl(path, 3600)
+      return { path, url: error ? '' : data?.signedUrl ?? '' }
+    })).then(results => {
+      if (!cancelled) setDmImageUrls(prev => ({ ...prev, ...Object.fromEntries(results.filter(item => item.url).map(item => [item.path, item.url])) }))
+    })
+    return () => { cancelled = true }
+  }, [dmMessages])
+
+  async function sendDirectPhoto() {
+    const me = session?.user.id
+    if (!me || !dmSelected || !dmPhoto || dmBusy) return
+    const file = dmPhoto
+    if (!['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'].includes(file.type)) { setDmError('Choisis une photo JPEG, PNG, WebP ou HEIC.'); return }
+    if (file.size > 10 * 1024 * 1024) { setDmError('La photo doit faire moins de 10 Mo.'); return }
+    if (isDemoDm(dmSelected)) {
+      const url = URL.createObjectURL(file)
+      setDemoPhotoMessages(prev => ({ ...prev, [dmSelected!]: [...(prev[dmSelected!] ?? []), { url, created_at: new Date().toISOString() }] }))
+      setDmPhoto(null)
+      return
+    }
+    setDmBusy(true); setDmError('')
+    const extension = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : file.type === 'image/heic' ? 'heic' : file.type === 'image/heif' ? 'heif' : 'jpg'
+    const path = `${me}/${crypto.randomUUID()}.${extension}`
+    const { error: uploadError } = await supabase.storage.from('social-dm-photos').upload(path, file, { contentType: file.type, upsert: false })
+    if (uploadError) { setDmError('Photo non envoyée : ' + uploadError.message); setDmBusy(false); return }
+    const { data, error } = await supabase.from('social_direct_messages')
+      .insert({ sender_id: me, recipient_id: dmSelected, body: DM_IMAGE_PREFIX + path })
+      .select('id,sender_id,recipient_id,body,created_at').single()
+    if (error) {
+      await supabase.storage.from('social-dm-photos').remove([path])
+      setDmError('Photo non envoyée : ' + error.message)
+    } else {
+      const msg = data as DirectMessage
+      setDmMessages(prev => prev.some(item => item.id === msg.id) ? prev : [...prev, msg].sort((a,b) => a.created_at.localeCompare(b.created_at)))
+      setDmPhoto(null)
+    }
+    setDmBusy(false)
+  }
 
   async function sendDirectMessage() {
     const me = session?.user.id
@@ -3536,7 +3595,7 @@ function App() {
                 {person.avatar_url ? <img src={person.avatar_url} alt="" style={{ width: 50, height: 50, borderRadius: '50%', objectFit: 'cover' }} /> :
                   <span style={{ width: 50, height: 50, borderRadius: '50%', background: '#343541', display: 'grid', placeItems: 'center', fontSize: 22 }}>{(person.first_name || '?').charAt(0).toUpperCase()}</span>}
                 <span style={{ flex: 1, minWidth: 0 }}><strong style={{ display: 'block' }}>{person.username ? `@${person.username}` : person.first_name}</strong>
-                  <small style={{ display: 'block', color: '#a4a4ad', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', marginTop: 5 }}>{last ? `${last.sender_id === dmMe ? 'Vous : ' : ''}${last.body}` : 'Commencer une conversation'}</small></span>
+                  <small style={{ display: 'block', color: '#a4a4ad', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', marginTop: 5 }}>{last ? `${last.sender_id === dmMe ? 'Vous : ' : ''}${dmImagePath(last.body) ? '📷 Photo' : last.body}` : 'Commencer une conversation'}</small></span>
                 <span style={{ color: '#a4a4ad' }}>›</span>
               </MatchFitSwipeConversation>
             })}
@@ -3567,13 +3626,17 @@ function App() {
               {!isDemoDm(dmSelected) && dmThread.length === 0 && <p style={{ textAlign: 'center', color: '#aaa' }}>Envoie ton premier message 👋</p>}
               {isDemoDm(dmSelected) && <small style={{ textAlign: 'center', color: '#a4a4ad' }}>Conversation fictive · messages non envoyés</small>}
               {isDemoDm(dmSelected) && [...(demoInitialMessages[dmSelected!] ?? []).map((message, i) => ({ ...message, id: `initial-${i}` })), ...(demoMessageReplies[dmSelected!] ?? []).map((message, i) => ({ ...message, mine: true, time: new Date(message.created_at).toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' }), id: `reply-${i}` }))].map(message => <div key={message.id} style={{ alignSelf: message.mine ? 'flex-end' : 'flex-start', maxWidth: '82%', background: message.mine ? '#ff7754' : '#292a33', borderRadius: 17, padding: '10px 13px', overflowWrap: 'anywhere' }}><div style={{ whiteSpace: 'pre-wrap', fontSize: 14 }}>{message.body}</div><small style={{ display: 'block', marginTop: 4, opacity: .75, fontSize: 10, textAlign: 'right' }}>{message.time}</small></div>)}
+              {isDemoDm(dmSelected) && (demoPhotoMessages[dmSelected!] ?? []).map((message, i) => <div key={`demo-photo-${i}`} style={{ alignSelf: 'flex-end', background: '#ff7754', padding: 6, borderRadius: 16 }}><img src={message.url} alt="Photo fictive envoyée" style={{ display: 'block', maxWidth: 230, maxHeight: 280, borderRadius: 12, objectFit: 'contain' }} /></div>)}
               {!isDemoDm(dmSelected) && dmThread.map(message => <div key={message.id} style={{ alignSelf: message.sender_id === dmMe ? 'flex-end' : 'flex-start', maxWidth: '82%', background: message.sender_id === dmMe ? '#ff7754' : '#292a33', borderRadius: 17, padding: '10px 13px', overflowWrap: 'anywhere' }}>
-                <div style={{ whiteSpace: 'pre-wrap', fontSize: 14 }}>{message.body}</div>
+                {dmImagePath(message.body) ? (dmImageUrls[dmImagePath(message.body)!] ? <a href={dmImageUrls[dmImagePath(message.body)!]} target="_blank" rel="noreferrer"><img src={dmImageUrls[dmImagePath(message.body)!]} alt="Photo envoyée dans la conversation" style={{ display: 'block', maxWidth: 240, maxHeight: 300, borderRadius: 12, objectFit: 'contain' }} /></a> : <span>📷 Chargement de la photo…</span>) : <div style={{ whiteSpace: 'pre-wrap', fontSize: 14 }}>{message.body}</div>}
                 <small style={{ display: 'block', marginTop: 4, opacity: .75, fontSize: 10, textAlign: 'right' }}>{new Date(message.created_at).toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' })}</small>
               </div>)}
               <div ref={dmBottomRef} />
             </div>
+            {dmPhotoPreview && <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 10, background: '#24252e', borderRadius: 12, marginBottom: 10 }}><img src={dmPhotoPreview} alt="Aperçu de la photo à envoyer" style={{ width: 72, height: 72, borderRadius: 10, objectFit: 'cover' }} /><span style={{ flex: 1, fontSize: 12 }}>Photo prête à envoyer</span><button type="button" onClick={() => setDmPhoto(null)} style={{ ...linkStyle, color: '#fff' }}>Retirer</button><button type="button" disabled={dmBusy} onClick={() => void sendDirectPhoto()} style={{ ...primaryStyle, width: 'auto', padding: 12 }}>{dmBusy ? 'Envoi…' : 'Envoyer la photo'}</button></div>}
+            <input ref={dmPhotoInput} type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" style={{ display: 'none' }} onChange={e => { const file = e.target.files?.[0]; if (file) { setDmPhoto(file); setDmError('') }; e.target.value = '' }} />
             <form onSubmit={e => { e.preventDefault(); if (isDemoDm(dmSelected)) { const body = dmDraft.trim(); if (!body || !dmSelected) return; setDemoMessageReplies(prev => ({ ...prev, [dmSelected]: [...(prev[dmSelected] ?? []), { body, created_at: new Date().toISOString() }] })); setDmDraft(''); return } void sendDirectMessage() }} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button type="button" onClick={() => dmPhotoInput.current?.click()} aria-label="Ajouter une photo" title="Envoyer une photo" style={{ background: '#292a33', border: '1px solid #454650', color: '#fff', borderRadius: 12, width: 44, height: 46, fontSize: 27, flexShrink: 0 }}>+</button>
               <input aria-label="Écrire un message" placeholder="Écris un message…" maxLength={2000} value={dmDraft} onChange={e => setDmDraft(e.target.value)}
                 style={{ ...fieldStyle, flex: 1, minWidth: 0, margin: 0 }} />
               <button type="submit" disabled={!dmDraft.trim() || dmBusy} style={{ ...primaryStyle, width: 'auto', padding: '13px 16px', opacity: !dmDraft.trim() || dmBusy ? .5 : 1 }}>{dmBusy ? '…' : 'Envoyer'}</button>
