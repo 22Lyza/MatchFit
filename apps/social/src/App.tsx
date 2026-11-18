@@ -390,6 +390,7 @@ const discoverDemos: SocialPost[] = [
 ]
 
 type DirectMessage = { id: string; sender_id: string; recipient_id: string; body: string; created_at: string }
+const DM_SHARE_PREFIX = '__matchfit_post_share__:'
 const DM_IMAGE_PREFIX = '__matchfit_dm_image__:'
 const dmImagePath = (body: string) => body.startsWith(DM_IMAGE_PREFIX) ? body.slice(DM_IMAGE_PREFIX.length) : null
 
@@ -1413,6 +1414,9 @@ function App() {
   const [dmPeople, setDmPeople] = useState<SocialProfile[]>([])
   const [dmMessages, setDmMessages] = useState<DirectMessage[]>([])
   const [dmSelected, setDmSelected] = useState<string | null>(null)
+  const [shareTarget, setShareTarget] = useState<{ id: string; caption: string; authorId: string; mediaType: 'image' | 'video' } | null>(null)
+  const [shareBusy, setShareBusy] = useState(false)
+  const [shareError, setShareError] = useState('')
   const [dmSearch, setDmSearch] = useState('')
   const [dmDraft, setDmDraft] = useState('')
   const [dmPhoto, setDmPhoto] = useState<File | null>(null)
@@ -2492,21 +2496,108 @@ function App() {
     setInteractionBusy(current => ({ ...current, ['heart:' + commentId]: false }))
   }
 
-  async function sharePost(postId: string, caption: string, mediaUrl?: string) {
-    const url = mediaUrl || window.location.href
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: 'MatchFit Social', text: caption, url })
-      } else {
-        await navigator.clipboard.writeText(url)
-        setInteractionMessage('Lien copié !')
-      }
-    } catch (error) {
-      if (error instanceof Error && error.name !== 'AbortError') {
-        setInteractionMessage('Partage impossible sur cet appareil.')
-      }
+  function sharePost(postId: string, caption: string) {
+    const post = posts.find(item => item.id === postId)
+    if (!post || postId.startsWith('demo-') || postId.startsWith('discover-demo-')) {
+      setInteractionMessage('Le partage est réservé aux vraies publications publiques.')
+      return
     }
+    setShareError('')
+    setShareTarget({ id: post.id, caption, authorId: post.user_id, mediaType: post.media_type })
   }
+
+  function matchFitPostLink(id: string) {
+    const url = new URL(window.location.href)
+    url.searchParams.set('post', id)
+    return url.toString()
+  }
+
+  async function verifySharePublic() {
+    if (!shareTarget) return false
+    const { data, error } = await supabase.from('social_profiles').select('is_private').eq('user_id', shareTarget.authorId).maybeSingle()
+    if (error || !data || data.is_private) {
+      setShareError('Ce contenu ne peut pas être partagé : compte privé ou inaccessible.')
+      return false
+    }
+    const { data: post, error: postError } = await supabase.from('social_posts').select('id').eq('id', shareTarget.id).maybeSingle()
+    if (postError || !post) { setShareError('Cette publication n’est plus disponible.'); return false }
+    return true
+  }
+
+  async function copySharedPost() {
+    if (!shareTarget || shareBusy) return
+    setShareBusy(true)
+    try {
+      if (await verifySharePublic()) {
+        await navigator.clipboard.writeText(matchFitPostLink(shareTarget.id))
+        setShareTarget(null)
+        setInteractionMessage('Lien de la publication copié !')
+      }
+    } catch { setShareError('Impossible de copier le lien sur cet appareil.') }
+    finally { setShareBusy(false) }
+  }
+
+  async function sharePostOutside() {
+    if (!shareTarget || shareBusy) return
+    setShareBusy(true)
+    try {
+      if (await verifySharePublic()) {
+        const url = matchFitPostLink(shareTarget.id)
+        if (navigator.share) await navigator.share({ title: 'MatchFit Social', text: shareTarget.caption.slice(0, 150), url })
+        else { await navigator.clipboard.writeText(url); setInteractionMessage('Lien copié !') }
+        setShareTarget(null)
+      }
+    } catch (e) { if (!(e instanceof Error && e.name === 'AbortError')) setShareError('Partage impossible.') }
+    finally { setShareBusy(false) }
+  }
+
+  async function sendSharedPost(recipientId: string) {
+    if (!shareTarget || !session?.user.id || shareBusy) return
+    setShareBusy(true)
+    try {
+      if (!(await verifySharePublic())) return
+      const body = DM_SHARE_PREFIX + shareTarget.id
+      if (isDemoDm(recipientId)) {
+        setDemoMessageReplies(prev => ({ ...prev, [recipientId]: [...(prev[recipientId] ?? []), { body, created_at: new Date().toISOString() }] }))
+      } else {
+        const { data, error } = await supabase.from('social_direct_messages')
+          .insert({ sender_id: session.user.id, recipient_id: recipientId, body })
+          .select('id,sender_id,recipient_id,body,created_at').single()
+        if (error) throw error
+        const message = data as DirectMessage
+        setDmMessages(prev => prev.some(item => item.id === message.id) ? prev : [...prev, message].sort((a,b) => a.created_at.localeCompare(b.created_at)))
+      }
+      setShareTarget(null)
+      setInteractionMessage('Publication envoyée dans la messagerie !')
+    } catch (e) { setShareError(e instanceof Error ? e.message : 'Envoi impossible.') }
+    finally { setShareBusy(false) }
+  }
+
+  function openSharedPost(id: string) {
+    const post = posts.find(item => item.id === id)
+    if (!post) { setDmError('Publication introuvable ou inaccessible.'); return }
+    if (post.user_id !== session?.user.id && privacyByUser[post.user_id] !== false) {
+      setDmError('Cette publication est privée ou inaccessible.'); return
+    }
+    setDmSelected(null)
+    setSelectedPost(post)
+    setReelsMode(post.media_type === 'video')
+    setPage('accueil')
+  }
+
+  useEffect(() => {
+    if (!posts.length || !session?.user.id) return
+    const id = new URL(window.location.href).searchParams.get('post')
+    if (!id) return
+    const post = posts.find(item => item.id === id)
+    if (!post || (post.user_id !== session.user.id && privacyByUser[post.user_id] !== false)) return
+    setSelectedPost(post)
+    setReelsMode(post.media_type === 'video')
+    setPage('accueil')
+    const url = new URL(window.location.href)
+    url.searchParams.delete('post')
+    window.history.replaceState(null, '', url.toString())
+  }, [posts, privacyByUser, session?.user.id])
 
   const demoComments: Record<string, { name: string; text: string }[]> = {
     'demo-Emma': [
@@ -2588,7 +2679,7 @@ function App() {
               <path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5 9 9 0 0 1-4-.9L3 21l1.9-5.5a9 9 0 0 1-.9-4A8.5 8.5 0 0 1 12.5 3 8.5 8.5 0 0 1 21 11.5Z" />
             </svg>
           </button>}
-          <button type="button" onClick={() => void sharePost(postId, caption, mediaUrl)} aria-label="Partager"
+          <button type="button" onClick={() => sharePost(postId, caption)} aria-label="Partager"
             style={{ ...linkStyle, color: '#f5f5f5', fontSize: 25, padding: '2px 0' }}>↗</button>
         </div>
         {!hideLikeCount && <p style={{ margin: '5px 0 8px', fontSize: 13, fontWeight: 700 }}>{isDemoPost(postId) ? (likedPosts[postId] ? 1 : 0) : (postLikeCounts[postId] || 0)} J’aime</p>}
@@ -3567,6 +3658,19 @@ function App() {
         </section>
       )}
 
+      {shareTarget && <div role="dialog" aria-modal="true" aria-label="Partager une publication" style={{ position: 'fixed', inset: 0, zIndex: 9000, background: '#000b', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={() => { if (!shareBusy) setShareTarget(null) }}>
+        <div onClick={e => e.stopPropagation()} style={{ background: '#1b1c24', borderRadius: '22px 22px 0 0', width: '100%', maxWidth: 560, maxHeight: '82vh', overflowY: 'auto', padding: '20px 18px calc(22px + env(safe-area-inset-bottom, 0px))', color: '#fff' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}><strong>Partager {shareTarget.mediaType === 'video' ? 'ce Reel' : 'cette publication'}</strong><button type="button" onClick={() => setShareTarget(null)} style={{ ...linkStyle, color: '#fff', fontSize: 22 }}>×</button></div>
+          <button type="button" disabled={shareBusy} onClick={() => void copySharedPost()} style={{ ...primaryStyle, marginBottom: 10, background: '#30313b' }}>🔗 Copier le lien</button>
+          <button type="button" disabled={shareBusy} onClick={() => void sharePostOutside()} style={{ ...primaryStyle, marginBottom: 18, background: '#30313b' }}>↗ Partager dans une autre application</button>
+          <strong style={{ fontSize: 14 }}>Envoyer à un ami MatchFit</strong>
+          <div style={{ display: 'grid', gap: 6, marginTop: 12 }}>
+            {[...demoConversations, ...dmPeople.filter(p => p.user_id !== session?.user.id)].map(person => <button type="button" key={person.user_id} disabled={shareBusy} onClick={() => void sendSharedPost(person.user_id)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 12, border: '1px solid #353641', background: '#24252e', borderRadius: 12, color: '#fff', textAlign: 'left' }}><span style={{ width: 36, height: 36, borderRadius: '50%', background: '#44404c', display: 'grid', placeItems: 'center' }}>{person.first_name[0]}</span><span style={{ flex: 1 }}>{person.username ? '@' + person.username : person.first_name}</span><span>Envoyer ↗</span></button>)}
+          </div>
+          {shareError && <p role="alert" style={{ color: '#ff8a8a', fontSize: 13 }}>{shareError}</p>}
+        </div>
+      </div>}
+
       {page === 'messages' && (
         <section style={{ padding: '12px 16px 100px', maxWidth: 640, margin: '0 auto', color: '#fff' }}>
           {!dmSelected ? <>
@@ -3625,10 +3729,10 @@ function App() {
             <div style={{ minHeight: '45vh', maxHeight: '60vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, padding: '18px 0' }}>
               {!isDemoDm(dmSelected) && dmThread.length === 0 && <p style={{ textAlign: 'center', color: '#aaa' }}>Envoie ton premier message 👋</p>}
               {isDemoDm(dmSelected) && <small style={{ textAlign: 'center', color: '#a4a4ad' }}>Conversation fictive · messages non envoyés</small>}
-              {isDemoDm(dmSelected) && [...(demoInitialMessages[dmSelected!] ?? []).map((message, i) => ({ ...message, id: `initial-${i}` })), ...(demoMessageReplies[dmSelected!] ?? []).map((message, i) => ({ ...message, mine: true, time: new Date(message.created_at).toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' }), id: `reply-${i}` }))].map(message => <div key={message.id} style={{ alignSelf: message.mine ? 'flex-end' : 'flex-start', maxWidth: '82%', background: message.mine ? '#ff7754' : '#292a33', borderRadius: 17, padding: '10px 13px', overflowWrap: 'anywhere' }}><div style={{ whiteSpace: 'pre-wrap', fontSize: 14 }}>{message.body}</div><small style={{ display: 'block', marginTop: 4, opacity: .75, fontSize: 10, textAlign: 'right' }}>{message.time}</small></div>)}
+              {isDemoDm(dmSelected) && [...(demoInitialMessages[dmSelected!] ?? []).map((message, i) => ({ ...message, id: `initial-${i}` })), ...(demoMessageReplies[dmSelected!] ?? []).map((message, i) => ({ ...message, mine: true, time: new Date(message.created_at).toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' }), id: `reply-${i}` }))].map(message => <div key={message.id} style={{ alignSelf: message.mine ? 'flex-end' : 'flex-start', maxWidth: '82%', background: message.mine ? '#ff7754' : '#292a33', borderRadius: 17, padding: '10px 13px', overflowWrap: 'anywhere' }}><div style={{ whiteSpace: 'pre-wrap', fontSize: 14 }}>{message.body.startsWith(DM_SHARE_PREFIX) ? <button type="button" onClick={() => openSharedPost(message.body.slice(DM_SHARE_PREFIX.length))} style={{ background: 'transparent', border: 0, color: '#fff', textAlign: 'left', padding: 0, cursor: 'pointer' }}>↗ Voir la publication partagée</button> : message.body}</div><small style={{ display: 'block', marginTop: 4, opacity: .75, fontSize: 10, textAlign: 'right' }}>{message.time}</small></div>)}
               {isDemoDm(dmSelected) && (demoPhotoMessages[dmSelected!] ?? []).map((message, i) => <div key={`demo-photo-${i}`} style={{ alignSelf: 'flex-end', background: '#ff7754', padding: 6, borderRadius: 16 }}><img src={message.url} alt="Photo fictive envoyée" style={{ display: 'block', maxWidth: 230, maxHeight: 280, borderRadius: 12, objectFit: 'contain' }} /></div>)}
               {!isDemoDm(dmSelected) && dmThread.map(message => <div key={message.id} style={{ alignSelf: message.sender_id === dmMe ? 'flex-end' : 'flex-start', maxWidth: '82%', background: message.sender_id === dmMe ? '#ff7754' : '#292a33', borderRadius: 17, padding: '10px 13px', overflowWrap: 'anywhere' }}>
-                {dmImagePath(message.body) ? (dmImageUrls[dmImagePath(message.body)!] ? <a href={dmImageUrls[dmImagePath(message.body)!]} target="_blank" rel="noreferrer"><img src={dmImageUrls[dmImagePath(message.body)!]} alt="Photo envoyée dans la conversation" style={{ display: 'block', maxWidth: 240, maxHeight: 300, borderRadius: 12, objectFit: 'contain' }} /></a> : <span>📷 Chargement de la photo…</span>) : <div style={{ whiteSpace: 'pre-wrap', fontSize: 14 }}>{message.body}</div>}
+                {dmImagePath(message.body) ? (dmImageUrls[dmImagePath(message.body)!] ? <a href={dmImageUrls[dmImagePath(message.body)!]} target="_blank" rel="noreferrer"><img src={dmImageUrls[dmImagePath(message.body)!]} alt="Photo envoyée dans la conversation" style={{ display: 'block', maxWidth: 240, maxHeight: 300, borderRadius: 12, objectFit: 'contain' }} /></a> : <span>📷 Chargement de la photo…</span>) : <div style={{ whiteSpace: 'pre-wrap', fontSize: 14 }}>{message.body.startsWith(DM_SHARE_PREFIX) ? <button type="button" onClick={() => openSharedPost(message.body.slice(DM_SHARE_PREFIX.length))} style={{ background: 'transparent', border: 0, color: '#fff', textAlign: 'left', padding: 0, cursor: 'pointer' }}>↗ Voir la publication partagée</button> : message.body}</div>}
                 <small style={{ display: 'block', marginTop: 4, opacity: .75, fontSize: 10, textAlign: 'right' }}>{new Date(message.created_at).toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' })}</small>
               </div>)}
               <div ref={dmBottomRef} />
