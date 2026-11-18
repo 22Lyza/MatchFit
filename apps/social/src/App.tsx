@@ -348,6 +348,15 @@ type SocialPost = {
   comments_disabled: boolean
 }
 
+// Date de publication automatique sous le pseudo (ex. « Sam. 9 »).
+function formatMatchFitPostDate(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const weekday = new Intl.DateTimeFormat('fr-CH', { weekday: 'short' }).format(date)
+  const day = new Intl.DateTimeFormat('fr-CH', { day: 'numeric' }).format(date)
+  return `${weekday.charAt(0).toUpperCase()}${weekday.slice(1).replace(/\.$/, '')}. ${day}`
+}
+
 // Publications fictives pour illustrer Découvrir, sans écriture dans Supabase.
 // Activités fictives pour tester la carte et le partage sans enregistrer de GPS.
 // Coordonnées inventées : elles ne représentent pas un trajet réellement parcouru.
@@ -510,7 +519,7 @@ function useStableIphoneViewport() {
 }
 
 // Éditeur plein écran : la même étape après la caméra et la photothèque.
-function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (file: File) => void; onCancel: () => void }) {
+function MatchFitMediaEditor({ file, mode, onDone, onCancel }: { file: File; mode: CreationType | null; onDone: (file: File) => void; onCancel: () => void }) {
   const [url, setUrl] = useState('')
   const [brightness, setBrightness] = useState(100)
   const [filter, setFilter] = useState<'normal' | 'contrast' | 'warm' | 'mono'>('normal')
@@ -605,6 +614,7 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const isVideo = file.type.startsWith('video/')
+  const isStoryEditor = mode === 'story'
   useEffect(() => {
     const objectUrl = URL.createObjectURL(file)
     setUrl(objectUrl)
@@ -1103,10 +1113,10 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
           <span style={{ color: '#fff', fontSize: 11, fontWeight: 600, textShadow: '0 1px 4px #000', pointerEvents: 'none' }}>Outils</span>
         </div>
         {toolsExpanded && <>
-          <button type="button" onClick={() => setActiveTool(t => t === 'location' ? null : 'location')} aria-label="Ajouter un lieu sur la photo" style={{ border: 0, background: '#000a', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 22 }}>📍</button>
-          <button type="button" onClick={() => { setTimeLabel(new Date().toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit', hour12: false })); setActiveTool(null) }} aria-label="Ajouter l’heure sur la photo" style={{ border: 0, background: '#000a', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 22 }}>◷</button>
-          <button type="button" onClick={() => setActiveTool(t => t === 'filter' ? null : 'filter')} aria-label="Filtres" style={{ border: 0, background: '#000a', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 22 }}>◐</button>
-          <button type="button" onClick={() => setActiveTool(t => t === 'light' ? null : 'light')} aria-label="Luminosité" style={{ border: 0, background: '#000a', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 22 }}>☀</button>
+          {isStoryEditor && <button type="button" onClick={() => setActiveTool(t => t === 'location' ? null : 'location')} aria-label="Ajouter un lieu sur la photo" style={{ border: 0, background: '#000a', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 22 }}>📍</button>}
+          {isStoryEditor && <button type="button" onClick={() => { setTimeLabel(new Date().toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit', hour12: false })); setActiveTool(null) }} aria-label="Ajouter l’heure sur la photo" style={{ border: 0, background: '#000a', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 22 }}>◷</button>}
+          {isStoryEditor && <button type="button" onClick={() => setActiveTool(t => t === 'filter' ? null : 'filter')} aria-label="Filtres" style={{ border: 0, background: '#000a', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 22 }}>◐</button>}
+          {isStoryEditor && <button type="button" onClick={() => setActiveTool(t => t === 'light' ? null : 'light')} aria-label="Luminosité" style={{ border: 0, background: '#000a', color: '#fff', width: 48, height: 48, borderRadius: 24, fontSize: 22 }}>☀</button>}
         </>}
       </div>}
       {activeTool && !isVideo && <div style={{ position: 'absolute', zIndex: 20, top: 240, left: 16, right: 70, background: '#17171eea', border: '1px solid #ffffff30', borderRadius: 16, padding: 12, display: 'grid', gap: 12 }}>
@@ -1118,7 +1128,7 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
         <button type="button" onClick={() => setActiveTool(null)} style={{ justifySelf: 'end', border: 0, background: '#ffffff22', color: '#fff', padding: '7px 13px', borderRadius: 9 }}>Terminé</button>
       </div>}
       {error && <div role="alert" style={{ position: 'absolute', bottom: 85, left: 16, right: 16, color: '#ffb0b0', background: '#000d', borderRadius: 12, padding: 10 }}>{error}</div>}
-      {!isVideo && <div style={{ position: 'absolute', bottom: 12, left: 16, right: 16 }}><input value={comment} onChange={e => setComment(e.target.value)} maxLength={160} placeholder="Ajouter un commentaire…" aria-label="Commentaire en bas de la photo" style={{ width: '100%', border: '1px solid #ffffff66', borderRadius: 24, background: '#000a', color: '#fff', padding: '14px 18px', fontSize: 16 }} /></div>}
+      {isStoryEditor && !isVideo && <div style={{ position: 'absolute', bottom: 12, left: 16, right: 16 }}><input value={comment} onChange={e => setComment(e.target.value)} maxLength={160} placeholder="Ajouter un commentaire…" aria-label="Commentaire en bas de la photo" style={{ width: '100%', border: '1px solid #ffffff66', borderRadius: 24, background: '#000a', color: '#fff', padding: '14px 18px', fontSize: 16 }} /></div>}
     </div>
   </div>
 }
@@ -1418,6 +1428,7 @@ function App() {
   const [postCaption, setPostCaption] = useState('')
   const [postLocation, setPostLocation] = useState('')
   const [postLink, setPostLink] = useState('')
+  const [postFilter, setPostFilter] = useState<'normal' | 'contrast' | 'warm' | 'mono'>('normal')
   const [postAdvancedOpen, setPostAdvancedOpen] = useState(false)
   const [hideLikeCount, setHideLikeCount] = useState(false)
   const [commentsDisabled, setCommentsDisabled] = useState(false)
@@ -2011,6 +2022,22 @@ function App() {
   const gpsPace = gpsDistance > 0.01 && gpsSeconds > 0 ? Math.round(gpsSeconds / gpsDistance) : null
   const gpsPaceLabel = gpsPace !== null ? `${Math.floor(gpsPace / 60)}:${String(gpsPace % 60).padStart(2, '0')}` : '--:--'
   const formatActivityTime = (seconds: number) => `${Math.floor(seconds / 3600) ? Math.floor(seconds / 3600) + 'h ' : ''}${String(Math.floor((seconds % 3600) / 60)).padStart(2, '0')}min ${String(seconds % 60).padStart(2, '0')}s`
+  async function applyPostImageFilter(file: File): Promise<File> {
+    if (postFilter === 'normal' || file.type.startsWith('video/')) return file
+    const bitmap = await createImageBitmap(file)
+    try {
+      const canvas = document.createElement('canvas')
+      canvas.width = bitmap.width
+      canvas.height = bitmap.height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('Filtre photo indisponible.')
+      ctx.filter = postFilter === 'contrast' ? 'contrast(1.22) saturate(1.15)' : postFilter === 'warm' ? 'sepia(.2) saturate(1.25)' : 'grayscale(1)'
+      ctx.drawImage(bitmap, 0, 0)
+      const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(result => result ? resolve(result) : reject(new Error('Filtre photo impossible.')), 'image/jpeg', .96))
+      return new File([blob], `matchfit-filter-${Date.now()}.jpg`, { type: 'image/jpeg' })
+    } finally { bitmap.close() }
+  }
+
   async function publishPost(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!session || !postFile || publishBusy) return
@@ -2028,15 +2055,15 @@ function App() {
 
     setPublishBusy(true)
     setPublishError('')
-    const extension = postFile.type === 'video/mp4' ? 'mp4'
-      : postFile.type === 'image/png' ? 'png'
-      : postFile.type === 'image/webp' ? 'webp' : 'jpg'
-    const path = `${session.user.id}/posts/${crypto.randomUUID()}.${extension}`
     let uploaded = false
+    let path = ''
     try {
+      const uploadFile = await applyPostImageFilter(postFile)
+      const extension = uploadFile.type === 'video/mp4' ? 'mp4' : uploadFile.type === 'image/png' ? 'png' : uploadFile.type === 'image/webp' ? 'webp' : 'jpg'
+      path = `${session.user.id}/posts/${crypto.randomUUID()}.${extension}`
       const { error: uploadError } = await supabase.storage
         .from('social-media')
-        .upload(path, postFile, { contentType: postFile.type })
+        .upload(path, uploadFile, { contentType: uploadFile.type })
       if (uploadError) throw uploadError
       uploaded = true
 
@@ -2055,6 +2082,7 @@ function App() {
       setPostCaption('')
       setPostLocation('')
       setPostLink('')
+      setPostFilter('normal')
       setPostAdvancedOpen(false)
       setHideLikeCount(false)
       setCommentsDisabled(false)
@@ -2514,7 +2542,7 @@ function App() {
           <div>
             <button type="button" onClick={() => void openMemberProfile(post.user_id)}
               style={{ background: 'none', border: 'none', padding: 0, color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>{authorName}</button>
-            <p>{new Date(post.created_at).toLocaleDateString('fr-CH', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+            <p>{formatMatchFitPostDate(post.created_at)}</p>
           </div>
           {post.user_id !== session?.user.id && !isDemoPost(post.id) && postOptions(post.id, authorName, false)}
           {inPreview && post.user_id === session?.user.id && (
@@ -4202,7 +4230,7 @@ function App() {
         </div>
       )}
 
-      {editingFile && <MatchFitMediaEditor file={editingFile} onDone={completeMediaEdit} onCancel={() => { setEditingFile(null); setCameraOpen(true) }} />}
+      {editingFile && <MatchFitMediaEditor file={editingFile} mode={creationType} onDone={completeMediaEdit} onCancel={() => { setEditingFile(null); setCameraOpen(true) }} />}
       {cameraOpen && Capacitor.getPlatform() === 'ios'
         ? <MatchFitDirectNativeCamera transition={cameraTransition} onClose={() => setCameraOpen(false)} onCapture={capturedMedia} />
         : cameraOpen && <MatchFitCamera mode={creationType === 'reel' ? 'reel' : creationType === 'publication' ? 'publication' : 'story'} onMode={mode => setCreationType(mode)} onClose={() => setCameraOpen(false)} onCapture={capturedMedia} />}
@@ -4235,11 +4263,19 @@ function App() {
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, padding: '16px 0 18px' }}>
                   {postPreview && postFile ? (
                     postFile.type.startsWith('video/') ? <video src={postPreview} muted playsInline controls style={{ width: 116, height: 156, flexShrink: 0, borderRadius: 12, objectFit: 'cover', background: '#111' }} />
-                    : <img src={postPreview} alt="Aperçu de la publication" style={{ width: 116, height: 156, flexShrink: 0, borderRadius: 12, objectFit: 'cover' }} />
-                  ) : <label htmlFor="creation-media" style={{ width: 116, height: 156, flexShrink: 0, display: 'grid', placeItems: 'center', background: '#24252e', borderRadius: 12, color: '#aaa', fontSize: 13, textAlign: 'center' }}>Choisir un média</label>}
+                    : <img src={postPreview} alt="Aperçu de la publication" style={{ width: 116, height: 156, flexShrink: 0, borderRadius: 12, objectFit: 'cover', filter: postFilter === 'contrast' ? 'contrast(1.22) saturate(1.15)' : postFilter === 'warm' ? 'sepia(.2) saturate(1.25)' : postFilter === 'mono' ? 'grayscale(1)' : 'none' }} />
+                  ) : <div style={{ width: 116, height: 156, flexShrink: 0, display: 'grid', placeItems: 'center', background: '#24252e', borderRadius: 12, color: '#aaa', fontSize: 13, textAlign: 'center' }}>Aucun média sélectionné</div>}
                   <textarea aria-label="Légende" placeholder="Ajouter une légende…" rows={6} maxLength={2000} value={postCaption} onChange={event => setPostCaption(event.target.value)} style={{ flex: 1, minWidth: 0, resize: 'vertical', background: 'transparent', border: 0, outline: 'none', color: '#fff', fontSize: 16, padding: '4px 0' }} />
                 </div>
-                <input id="creation-media" type="file" accept="image/jpeg,image/png,image/webp,video/mp4" onChange={event => setPostFile(event.target.files?.[0] ?? null)} style={{ marginBottom: 16, fontSize: 13, maxWidth: '100%' }} />
+
+                {postFile && !postFile.type.startsWith('video/') && <div style={{ padding: '12px 0 16px', display: 'grid', gap: 10 }}>
+                  <strong style={{ fontSize: 15 }}>◐ Filtres de la photo</strong>
+                  <div style={{ display: 'flex', gap: 7 }}>
+                    {(['normal', 'contrast', 'warm', 'mono'] as const).map(value => <button key={value} type="button" aria-pressed={postFilter === value} onClick={() => setPostFilter(value)} style={{ flex: 1, border: postFilter === value ? '2px solid #ff8a4b' : '1px solid #555', borderRadius: 10, padding: '10px 4px', background: '#24252e', color: '#fff', fontSize: 12 }}>{value === 'normal' ? 'Normal' : value === 'contrast' ? 'Éclat' : value === 'warm' ? 'Chaud' : 'N&B'}</button>)}
+                  </div>
+                  <small style={{ color: '#a4a4ad' }}>Le filtre choisi sera appliqué à la photo publiée.</small>
+                </div>}
+                {postFile?.type.startsWith('video/') && <div style={{ padding: '12px 0', color: '#a4a4ad', fontSize: 13 }}>Filtres vidéo : à intégrer lors d’une prochaine étape.</div>}
                 <div style={{ borderTop: '1px solid #30313b' }} />
                 <div style={{ padding: '16px 0', color: '#a4a4ad', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}><span>♫ Ajouter un audio</span><small>Prochainement</small></div>
                 <div style={{ borderTop: '1px solid #30313b' }} />
