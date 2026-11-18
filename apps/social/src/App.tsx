@@ -1417,6 +1417,13 @@ function App() {
   const [shareTarget, setShareTarget] = useState<{ id: string; caption: string; authorId: string; mediaType: 'image' | 'video' } | null>(null)
   const [shareBusy, setShareBusy] = useState(false)
   const [shareError, setShareError] = useState('')
+  const [shareToast, setShareToast] = useState('')
+  const shareToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  function showShareToast(message: string) {
+    setShareToast(message)
+    if (shareToastTimer.current) clearTimeout(shareToastTimer.current)
+    shareToastTimer.current = setTimeout(() => setShareToast(''), 2200)
+  }
   const [dmSearch, setDmSearch] = useState('')
   const [dmDraft, setDmDraft] = useState('')
   const [dmPhoto, setDmPhoto] = useState<File | null>(null)
@@ -2496,13 +2503,25 @@ function App() {
     setInteractionBusy(current => ({ ...current, ['heart:' + commentId]: false }))
   }
 
-  function sharePost(postId: string, caption: string) {
+  async function sharePost(postId: string, caption: string) {
     const post = posts.find(item => item.id === postId)
     if (!post || postId.startsWith('demo-') || postId.startsWith('discover-demo-')) {
       setInteractionMessage('Le partage est réservé aux vraies publications publiques.')
       return
     }
     setShareError('')
+    // Vérifier avant d'afficher le menu : le clic sur « Partager ailleurs »
+    // doit ensuite ouvrir immédiatement la feuille native iOS.
+    const { data: author, error: authorError } = await supabase.from('social_profiles').select('is_private').eq('user_id', post.user_id).maybeSingle()
+    if (authorError || !author || author.is_private) {
+      setInteractionMessage('Ce contenu ne peut pas être partagé : compte privé ou inaccessible.')
+      return
+    }
+    const { data: availablePost, error: postError } = await supabase.from('social_posts').select('id').eq('id', post.id).maybeSingle()
+    if (postError || !availablePost) {
+      setInteractionMessage('Cette publication n’est plus disponible.')
+      return
+    }
     setShareTarget({ id: post.id, caption, authorId: post.user_id, mediaType: post.media_type })
   }
 
@@ -2531,7 +2550,7 @@ function App() {
       if (await verifySharePublic()) {
         await navigator.clipboard.writeText(matchFitPostLink(shareTarget.id))
         setShareTarget(null)
-        setInteractionMessage('Lien de la publication copié !')
+        showShareToast('Lien copié ✓')
       }
     } catch { setShareError('Impossible de copier le lien sur cet appareil.') }
     finally { setShareBusy(false) }
@@ -2539,16 +2558,20 @@ function App() {
 
   async function sharePostOutside() {
     if (!shareTarget || shareBusy) return
-    setShareBusy(true)
+    // IMPORTANT : aucun await avant navigator.share(), sinon iOS WebKit
+    // peut perdre l'activation utilisateur et refuser la feuille de partage.
+    const url = matchFitPostLink(shareTarget.id)
+    if (!navigator.share) {
+      setShareError('Le partage natif n’est pas disponible ici. Utilise « Copier le lien » pour le moment.')
+      return
+    }
     try {
-      if (await verifySharePublic()) {
-        const url = matchFitPostLink(shareTarget.id)
-        if (navigator.share) await navigator.share({ title: 'MatchFit Social', text: shareTarget.caption.slice(0, 150), url })
-        else { await navigator.clipboard.writeText(url); setInteractionMessage('Lien copié !') }
-        setShareTarget(null)
-      }
-    } catch (e) { if (!(e instanceof Error && e.name === 'AbortError')) setShareError('Partage impossible.') }
-    finally { setShareBusy(false) }
+      await navigator.share({ title: 'MatchFit Social', url })
+      setShareTarget(null)
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') return
+      setShareError('Le menu de partage iPhone ne s’ouvre pas. Vérifie que MatchFit est bien lancé depuis l’application iOS.')
+    }
   }
 
   async function sendSharedPost(recipientId: string) {
@@ -3657,6 +3680,8 @@ function App() {
           {activityError && <p role="alert" style={{ color: '#ff7777' }}>{activityError}</p>}
         </section>
       )}
+
+      {shareToast && <div role="status" aria-live="polite" style={{ position: 'fixed', left: '50%', bottom: 'calc(92px + env(safe-area-inset-bottom, 0px))', transform: 'translateX(-50%)', zIndex: 10000, padding: '10px 17px', borderRadius: 24, background: '#30313b', boxShadow: '0 5px 22px #0009', color: '#fff', fontSize: 13, fontWeight: 600, pointerEvents: 'none', whiteSpace: 'nowrap' }}>{shareToast}</div>}
 
       {shareTarget && <div role="dialog" aria-modal="true" aria-label="Partager une publication" style={{ position: 'fixed', inset: 0, zIndex: 9000, background: '#000b', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={() => { if (!shareBusy) setShareTarget(null) }}>
         <div onClick={e => e.stopPropagation()} style={{ background: '#1b1c24', borderRadius: '22px 22px 0 0', width: '100%', maxWidth: 560, maxHeight: '82vh', overflowY: 'auto', padding: '20px 18px calc(22px + env(safe-area-inset-bottom, 0px))', color: '#fff' }}>
