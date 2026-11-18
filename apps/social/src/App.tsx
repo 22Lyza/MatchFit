@@ -389,6 +389,8 @@ const discoverDemos: SocialPost[] = [
   { id: 'discover-demo-course', user_id: 'discover-demo-course', caption: 'Alex · Course — Objectif atteint 🏅', media_url: 'https://images.unsplash.com/photo-1538805060514-97d9cc17730c?w=900&auto=format&fit=crop&q=80', media_type: 'image', created_at: '2026-11-13', hide_like_count: false, comments_disabled: false },
 ]
 
+type DirectMessage = { id: string; sender_id: string; recipient_id: string; body: string; created_at: string }
+
 type StoredComment = { id: string; post_id: string; user_id: string; content: string; created_at: string; parent_id: string | null }
 type DisplayComment = { id: string; name: string; text: string; demo: boolean; parentId: string | null }
 
@@ -1379,6 +1381,16 @@ function App() {
   const [showLoginSuggestion, setShowLoginSuggestion] = useState(false)
 
   const [page, setPage] = useState<Page>('accueil')
+  const [dmPeople, setDmPeople] = useState<SocialProfile[]>([])
+  const [dmMessages, setDmMessages] = useState<DirectMessage[]>([])
+  const [dmSelected, setDmSelected] = useState<string | null>(null)
+  const [dmSearch, setDmSearch] = useState('')
+  const [dmDraft, setDmDraft] = useState('')
+  const [dmBusy, setDmBusy] = useState(false)
+  const [dmLoading, setDmLoading] = useState(false)
+  const [dmError, setDmError] = useState('')
+  const dmBottomRef = useRef<HTMLDivElement | null>(null)
+
   const [settingsSection, setSettingsSection] = useState<'accueil' | 'archives' | 'confidentialite' | 'securite' | 'conditions' | 'donnees'>('accueil')
   const [likedPosts, setLikedPosts] = useState<Record<string, boolean>>({})
   const [likedComments, setLikedComments] = useState<Record<string, boolean>>({})
@@ -1809,6 +1821,71 @@ function App() {
     void loadDiscoverPeople()
     return () => { cancelled = true }
   }, [session?.user.id, page])
+
+  // Messages privés : seules les lignes envoyées ou reçues sont visibles (RLS Supabase).
+  useEffect(() => {
+    const me = session?.user.id
+    if (!me) { setDmPeople([]); setDmMessages([]); setDmSelected(null); return }
+    let cancelled = false
+    async function refreshMessages() {
+      const { data, error } = await supabase.from('social_direct_messages')
+        .select('id,sender_id,recipient_id,body,created_at')
+        .or(`sender_id.eq.${me},recipient_id.eq.${me}`)
+        .order('created_at', { ascending: true }).limit(1000)
+      if (cancelled) return
+      if (error) setDmError('Messagerie indisponible : ' + error.message)
+      else { setDmMessages((data ?? []) as DirectMessage[]); setDmError('') }
+    }
+    async function loadPeople() {
+      const { data, error } = await supabase.from('social_profiles')
+        .select('user_id, first_name, username, city, sports, bio, avatar_url, is_private')
+        .order('first_name', { ascending: true }).limit(300)
+      if (!cancelled && !error) setDmPeople((data ?? []) as SocialProfile[])
+    }
+    setDmLoading(true)
+    void Promise.all([refreshMessages(), loadPeople()]).finally(() => { if (!cancelled) setDmLoading(false) })
+    const channel = supabase.channel(`matchfit-dm-${me}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'social_direct_messages' }, payload => {
+        const msg = payload.new as DirectMessage
+        if (msg.sender_id === me || msg.recipient_id === me) {
+          setDmMessages(prev => prev.some(item => item.id === msg.id) ? prev : [...prev, msg].sort((a,b) => a.created_at.localeCompare(b.created_at)))
+        }
+      }).subscribe()
+    return () => { cancelled = true; void supabase.removeChannel(channel) }
+  }, [session?.user.id])
+
+  useEffect(() => { if (page === 'messages' && dmSelected) dmBottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [page, dmSelected, dmMessages.length])
+
+  async function sendDirectMessage() {
+    const me = session?.user.id
+    const body = dmDraft.trim()
+    if (!me || !dmSelected || !body || dmBusy || body.length > 2000) return
+    setDmBusy(true); setDmError('')
+    const { data, error } = await supabase.from('social_direct_messages')
+      .insert({ sender_id: me, recipient_id: dmSelected, body })
+      .select('id,sender_id,recipient_id,body,created_at').single()
+    if (error) setDmError('Envoi impossible : ' + error.message)
+    else {
+      const msg = data as DirectMessage
+      setDmMessages(prev => prev.some(item => item.id === msg.id) ? prev : [...prev, msg].sort((a,b) => a.created_at.localeCompare(b.created_at)))
+      setDmDraft('')
+    }
+    setDmBusy(false)
+  }
+
+  const dmMe = session?.user.id
+  const dmCorrespondents = Array.from(new Set(dmMessages.map(m => m.sender_id === dmMe ? m.recipient_id : m.sender_id)))
+  const dmSearchLower = dmSearch.trim().toLocaleLowerCase('fr')
+  const dmVisiblePeople = dmPeople.filter(person => person.user_id !== dmMe &&
+    [person.first_name, person.username ?? '', person.city].some(v => v.toLocaleLowerCase('fr').includes(dmSearchLower)))
+  const dmSortedPeople = [...dmVisiblePeople].sort((a,b) => {
+    const last = (id: string) => [...dmMessages].reverse().find(m => m.sender_id === id || m.recipient_id === id)?.created_at ?? ''
+    const aConversation = dmCorrespondents.includes(a.user_id), bConversation = dmCorrespondents.includes(b.user_id)
+    if (aConversation !== bConversation) return aConversation ? -1 : 1
+    return last(b.user_id).localeCompare(last(a.user_id))
+  })
+  const dmCurrentPerson = dmPeople.find(p => p.user_id === dmSelected)
+  const dmThread = dmMessages.filter(m => (m.sender_id === dmMe && m.recipient_id === dmSelected) || (m.sender_id === dmSelected && m.recipient_id === dmMe))
 
   const normalizedDiscoverSearch = discoverSearch.trim().toLocaleLowerCase('fr')
   const matchesDiscover = (person: SocialProfile) => {
@@ -3363,11 +3440,45 @@ function App() {
       )}
 
       {page === 'messages' && (
-        <section className="placeholder-page">
-          <h2>Messages</h2>
-          <p>
-            Retrouve tes conversations avec les autres sportifs.
-          </p>
+        <section style={{ padding: '12px 16px 100px', maxWidth: 640, margin: '0 auto', color: '#fff' }}>
+          {!dmSelected ? <>
+            <h2 style={{ margin: '6px 0 18px' }}>Messages</h2>
+            <input aria-label="Rechercher un sportif" placeholder="Rechercher un sportif…" value={dmSearch}
+              onChange={e => setDmSearch(e.target.value)} style={fieldStyle} />
+            {dmLoading && <p style={{ color: '#aaa' }}>Chargement des conversations…</p>}
+            {dmSortedPeople.length === 0 && !dmLoading && <p style={{ color: '#aaa' }}>Aucun sportif trouvé.</p>}
+            {dmSortedPeople.map(person => {
+              const last = [...dmMessages].reverse().find(m => m.sender_id === person.user_id || m.recipient_id === person.user_id)
+              return <button key={person.user_id} type="button" onClick={() => { setDmSelected(person.user_id); setDmDraft(''); setDmError('') }}
+                style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '13px 4px', border: 0, borderBottom: '1px solid #292a33', background: 'transparent', color: '#fff', textAlign: 'left', cursor: 'pointer' }}>
+                {person.avatar_url ? <img src={person.avatar_url} alt="" style={{ width: 50, height: 50, borderRadius: '50%', objectFit: 'cover' }} /> :
+                  <span style={{ width: 50, height: 50, borderRadius: '50%', background: '#343541', display: 'grid', placeItems: 'center', fontSize: 22 }}>{(person.first_name || '?').charAt(0).toUpperCase()}</span>}
+                <span style={{ flex: 1, minWidth: 0 }}><strong style={{ display: 'block' }}>{person.username ? `@${person.username}` : person.first_name}</strong>
+                  <small style={{ display: 'block', color: '#a4a4ad', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', marginTop: 5 }}>{last ? `${last.sender_id === dmMe ? 'Vous : ' : ''}${last.body}` : 'Commencer une conversation'}</small></span>
+                <span style={{ color: '#a4a4ad' }}>›</span>
+              </button>
+            })}
+          </> : <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingBottom: 14, borderBottom: '1px solid #343541' }}>
+              <button type="button" onClick={() => { setDmSelected(null); setDmError('') }} style={{ background: 'none', border: 0, color: '#fff', fontSize: 26, cursor: 'pointer' }} aria-label="Retour aux conversations">‹</button>
+              {dmCurrentPerson?.avatar_url && <img src={dmCurrentPerson.avatar_url} alt="" style={{ width: 38, height: 38, borderRadius: '50%', objectFit: 'cover' }} />}
+              <strong>{dmCurrentPerson?.username ? `@${dmCurrentPerson.username}` : dmCurrentPerson?.first_name ?? 'Conversation'}</strong>
+            </div>
+            <div style={{ minHeight: '45vh', maxHeight: '60vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, padding: '18px 0' }}>
+              {dmThread.length === 0 && <p style={{ textAlign: 'center', color: '#aaa' }}>Envoie ton premier message 👋</p>}
+              {dmThread.map(message => <div key={message.id} style={{ alignSelf: message.sender_id === dmMe ? 'flex-end' : 'flex-start', maxWidth: '82%', background: message.sender_id === dmMe ? '#ff7754' : '#292a33', borderRadius: 17, padding: '10px 13px', overflowWrap: 'anywhere' }}>
+                <div style={{ whiteSpace: 'pre-wrap', fontSize: 14 }}>{message.body}</div>
+                <small style={{ display: 'block', marginTop: 4, opacity: .75, fontSize: 10, textAlign: 'right' }}>{new Date(message.created_at).toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' })}</small>
+              </div>)}
+              <div ref={dmBottomRef} />
+            </div>
+            <form onSubmit={e => { e.preventDefault(); void sendDirectMessage() }} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input aria-label="Écrire un message" placeholder="Écris un message…" maxLength={2000} value={dmDraft} onChange={e => setDmDraft(e.target.value)}
+                style={{ ...fieldStyle, flex: 1, minWidth: 0, margin: 0 }} />
+              <button type="submit" disabled={!dmDraft.trim() || dmBusy} style={{ ...primaryStyle, width: 'auto', padding: '13px 16px', opacity: !dmDraft.trim() || dmBusy ? .5 : 1 }}>{dmBusy ? '…' : 'Envoyer'}</button>
+            </form>
+          </>}
+          {dmError && <p role="alert" style={{ color: '#ff8888', fontSize: 13 }}>{dmError}</p>}
         </section>
       )}
 
@@ -4265,7 +4376,7 @@ function App() {
                     postFile.type.startsWith('video/') ? <video src={postPreview} muted playsInline controls style={{ width: 116, height: 156, flexShrink: 0, borderRadius: 12, objectFit: 'cover', background: '#111' }} />
                     : <img src={postPreview} alt="Aperçu de la publication" style={{ width: 116, height: 156, flexShrink: 0, borderRadius: 12, objectFit: 'cover', filter: postFilter === 'contrast' ? 'contrast(1.22) saturate(1.15)' : postFilter === 'warm' ? 'sepia(.2) saturate(1.25)' : postFilter === 'mono' ? 'grayscale(1)' : 'none' }} />
                   ) : <div style={{ width: 116, height: 156, flexShrink: 0, display: 'grid', placeItems: 'center', background: '#24252e', borderRadius: 12, color: '#aaa', fontSize: 13, textAlign: 'center' }}>Aucun média sélectionné</div>}
-                  <textarea aria-label="Commentaire de la publication ou du réel" placeholder="Écris un commentaire sur ta publication ou ton réel…" rows={6} maxLength={2000} value={postCaption} onChange={event => setPostCaption(event.target.value)} style={{ flex: 1, minWidth: 0, resize: 'vertical', background: 'transparent', border: 0, outline: 'none', color: '#fff', fontSize: 16, padding: '4px 0' }} />
+                  <textarea aria-label="Légende" placeholder="Ajouter une légende…" rows={6} maxLength={2000} value={postCaption} onChange={event => setPostCaption(event.target.value)} style={{ flex: 1, minWidth: 0, resize: 'vertical', background: 'transparent', border: 0, outline: 'none', color: '#fff', fontSize: 16, padding: '4px 0' }} />
                 </div>
 
                 {postFile && !postFile.type.startsWith('video/') && <div style={{ padding: '12px 0 16px', display: 'grid', gap: 10 }}>
@@ -4284,13 +4395,13 @@ function App() {
                 <label style={{ display: 'grid', gap: 8, padding: '16px 0', color: '#fff', fontSize: 15 }}>
                   <span>⌖ Ajouter un lieu</span>
                   <input value={postLocation} onChange={event => setPostLocation(event.target.value)} maxLength={120} placeholder="Ex. Les Diablerets" style={{ ...fieldStyle, margin: 0 }} />
-                  <small style={{ color: '#a4a4ad' }}>Le lieu sera ajouté au commentaire de la publication.</small>
+                  <small style={{ color: '#a4a4ad' }}>Le lieu sera ajouté à la légende de la publication.</small>
                 </label>
                 <div style={{ borderTop: '1px solid #30313b' }} />
                 <label style={{ display: 'grid', gap: 8, padding: '16px 0', color: '#fff', fontSize: 15 }}>
                   <span>↗ Ajouter un lien</span>
                   <input value={postLink} onChange={event => setPostLink(event.target.value)} maxLength={500} placeholder="https://…" inputMode="url" style={{ ...fieldStyle, margin: 0 }} />
-                  <small style={{ color: '#a4a4ad' }}>Le lien sera ajouté au commentaire (pas encore cliquable).</small>
+                  <small style={{ color: '#a4a4ad' }}>Le lien sera ajouté à la légende (pas encore cliquable).</small>
                 </label>
                 <div style={{ borderTop: '1px solid #30313b' }} />
                 <button type="button" onClick={() => setPostAdvancedOpen(value => !value)} aria-expanded={postAdvancedOpen} style={{ padding: '18px 0', display: 'flex', width: '100%', alignItems: 'center', justifyContent: 'space-between', border: 0, background: 'transparent', color: '#fff', fontSize: 16, textAlign: 'left' }}><span>⚙ Plus d’options</span><span>{postAdvancedOpen ? '⌃' : '›'}</span></button>
