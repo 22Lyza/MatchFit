@@ -574,11 +574,20 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
   const textDrag = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null)
   const [photoZoom, setPhotoZoom] = useState(1)
   const [photoOffset, setPhotoOffset] = useState({ x: 0, y: 0 })
+  // Le cadrage photo n'est interactif que lorsqu'aucun sticker n'est présent.
+  const photoLocked = !!caption.trim() || !!locationLabel.trim() || !!timeLabel.trim()
   // Un geste appartient soit au texte, soit à la photo, jamais aux deux.
   const gestureOwner = useRef<'text' | 'photo' | 'location' | 'time' | null>(null)
   const photoPointers = useRef(new Map<number, { x: number; y: number }>())
   const photoGesture = useRef<{ distance: number; zoom: number; x: number; y: number; ox: number; oy: number } | null>(null)
   const photoFrame = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (photoLocked) {
+      photoPointers.current.clear()
+      photoGesture.current = null
+      if (gestureOwner.current === 'photo') gestureOwner.current = null
+    }
+  }, [photoLocked])
   const [photoSize, setPhotoSize] = useState({ width: 1, height: 1 })
   const [photoFrameSize, setPhotoFrameSize] = useState({ width: 1, height: 1 })
   const activePointers = useRef<Map<number, {x:number;y:number}>>(new Map())
@@ -756,7 +765,7 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
             updatePinch()
             return
           }
-          if (activePointers.current.size > 0 || (e.target as HTMLElement).closest('[data-matchfit-text-layer]')) return
+          if (photoLocked || activePointers.current.size > 0 || (e.target as HTMLElement).closest('[data-matchfit-text-layer]')) return
           gestureOwner.current = 'photo'
           e.currentTarget.setPointerCapture(e.pointerId)
           photoPointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
@@ -796,7 +805,7 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
             updatePinch()
             return
           }
-          if (gestureOwner.current !== 'photo' || !photoPointers.current.has(e.pointerId)) return
+          if (photoLocked || gestureOwner.current !== 'photo' || !photoPointers.current.has(e.pointerId)) return
           photoPointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
           const points = [...photoPointers.current.values()]
           const g = photoGesture.current
@@ -875,7 +884,7 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
         onKeyDown={e => { if(e.key==='Enter' || e.key===' ') setActiveTool('text') }}
         onPointerDown={e => {
           e.stopPropagation()
-          if (gestureOwner.current === 'photo') {
+          if (!photoLocked && gestureOwner.current === 'photo') {
             e.currentTarget.setPointerCapture(e.pointerId)
             photoPointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
             const points = [...photoPointers.current.values()]
@@ -896,7 +905,7 @@ function MatchFitMediaEditor({ file, onDone, onCancel }: { file: File; onDone: (
         }}
         onPointerMove={e => {
           e.stopPropagation()
-          if (gestureOwner.current === 'photo' && photoPointers.current.has(e.pointerId)) {
+          if (!photoLocked && gestureOwner.current === 'photo' && photoPointers.current.has(e.pointerId)) {
             photoPointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
             const points = [...photoPointers.current.values()]
             const g = photoGesture.current
