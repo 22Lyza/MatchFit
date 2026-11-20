@@ -7,6 +7,7 @@ import { supabase } from './supabase'
 import { Capacitor, registerPlugin } from '@capacitor/core'
 import type { BackgroundGeolocationPlugin } from '@capacitor-community/background-geolocation'
 import { FilePicker } from '@capawesome/capacitor-file-picker'
+import { Share } from '@capacitor/share'
 
 const BackgroundGeolocation = registerPlugin<BackgroundGeolocationPlugin>('BackgroundGeolocation')
 
@@ -2558,19 +2559,23 @@ function App() {
 
   async function sharePostOutside() {
     if (!shareTarget || shareBusy) return
-    // IMPORTANT : aucun await avant navigator.share(), sinon iOS WebKit
-    // peut perdre l'activation utilisateur et refuser la feuille de partage.
     const url = matchFitPostLink(shareTarget.id)
-    if (!navigator.share) {
-      setShareError('Le partage natif n’est pas disponible ici. Utilise « Copier le lien » pour le moment.')
-      return
-    }
     try {
-      await navigator.share({ title: 'MatchFit Social', url })
+      // Capacitor appelle directement UIActivityViewController sur iOS.
+      // Le contrôle du compte public est déjà effectué dans sharePost().
+      if (Capacitor.isNativePlatform()) {
+        await Share.share({ title: 'MatchFit Social', text: 'Regarde cette publication sur MatchFit !', url, dialogTitle: 'Partager sur MatchFit' })
+      } else if (navigator.share) {
+        await navigator.share({ title: 'MatchFit Social', url })
+      } else {
+        setShareError('Le partage n’est pas disponible dans ce navigateur. Utilise « Copier le lien ».')
+        return
+      }
       setShareTarget(null)
     } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') return
-      setShareError('Le menu de partage iPhone ne s’ouvre pas. Vérifie que MatchFit est bien lancé depuis l’application iOS.')
+      if (error instanceof Error && (error.name === 'AbortError' || /cancel/i.test(error.message))) return
+      console.error('MatchFit partage natif :', error)
+      setShareError('Impossible d’ouvrir le partage iOS. Vérifie que le plugin @capacitor/share est synchronisé dans Xcode.')
     }
   }
 
